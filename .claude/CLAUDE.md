@@ -1,0 +1,42 @@
+# Kontext für Claude Code in diesem Repo
+
+Dieses Verzeichnis ist die Bootstrap-Schicht für die Paperclip-Installation
+der Jolmes Gruppe. Wenn du als Claude Code in einer Codespace-Sitzung auf
+diesem Repo arbeitest, gilt:
+
+## Sprache
+- Antworten auf **Deutsch**, knapp und direkt.
+- Code, Variablen, Commit-Messages: Englisch.
+
+## Repo-Charakter
+- Das hier ist **nicht** der Paperclip-Sourcecode, sondern eine Setup-/
+  Konfig-Schicht. Quelle ist `paperclipai/paperclip` (Default-Branch:
+  `master`).
+- Nach erfolgreichem Fork sollten die hiesigen Dateien (`SETUP.md`,
+  `.devcontainer/`, `.env.example`, `bootstrap.sh`, `docs/`, `prompts/`)
+  in den Fork wandern und dort `master` ergänzen.
+
+## Sicherheits-Leitplanken
+- **Niemals** echte Werte in `.env.example` schreiben.
+- **Niemals** `.env`, Keys oder Secrets committen.
+- DSGVO ist nicht verhandelbar: Telemetrie bleibt aus
+  (`PAPERCLIP_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`).
+- Kein externer Telemetrie-Beacon, kein Google.
+
+## Stack-Defaults
+- Modell: `claude-sonnet-4-6`
+- Node 20+, pnpm 9.15.4 (über Corepack)
+- Ports: API+UI auf 3100
+- Daten: `~/.paperclip/instances/default/`
+
+## Aktueller Phasenplan
+- **Phase 1** (jetzt): Codespace-Setup, erste Test-Company, Smoke-Test.
+- **Phase 2**: Azure Container Apps + Postgres Flex + M365-Graph-Connector
+  + Entra-ID-SSO. Skizze in `docs/PHASE-2-AZURE.md`.
+- **Phase 3**: produktive Mail-Klassifikation, weitere Rollen.
+
+## Wenn Henning fragt
+- „Was ist offen?" → kurze Statusliste, max. 5 Punkte.
+- „Wie war das nochmal mit X?" → Verweise auf konkrete Dateien
+  (`SETUP.md#…`, `prompts/…`).
+- Ambiguität → fragen, nicht raten.
