@@ -12,8 +12,25 @@ cd "$(dirname "$0")/.."   # → Repo-Root
 
 echo "== 1/5 ==> Toolchain prüfen"
 node --version
-corepack enable
-corepack prepare pnpm@9.15.4 --activate
+
+# corepack braucht in Codespaces oft sudo, weil /usr/local/bin/ nicht
+# vom Default-User beschreibbar ist. Wir versuchen erst ohne, fallen
+# dann auf sudo zurück, und als letzten Ausweg auf 'npm i -g'.
+SUDO=""
+if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+  SUDO="sudo"
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  if corepack enable >/dev/null 2>&1 && corepack prepare pnpm@9.15.4 --activate >/dev/null 2>&1; then
+    echo "   pnpm via corepack aktiviert"
+  elif [ -n "$SUDO" ] && $SUDO corepack enable && $SUDO corepack prepare pnpm@9.15.4 --activate; then
+    echo "   pnpm via sudo+corepack aktiviert"
+  else
+    echo "   corepack nicht möglich – fallback: npm i -g pnpm@9.15.4"
+    $SUDO npm install -g pnpm@9.15.4
+  fi
+fi
 pnpm --version
 
 echo "== 2/5 ==> Dependencies installieren"
