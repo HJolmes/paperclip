@@ -78,13 +78,22 @@ geht's nur um Hennings eigenen Arbeitsalltag.
 
 ## Getting Started
 
-Nach den Voraussetzungen:
+Nach den Voraussetzungen — einer der beiden Wege:
+
+**Variante A: Web-UI (empfohlen, kein Build nötig)**
+
+1. Im Browser unter `http://localhost:3100` einloggen
+2. Companies → „Import" → Pfad oder Dateien aus `companies/henning-personal-ops/` auswählen
+3. Vorschau prüfen → bestätigen
+
+**Variante B: CLI**
 
 ```bash
-paperclipai company import --from companies/henning-personal-ops
+pnpm --filter paperclipai build
+node cli/dist/index.js company import companies/henning-personal-ops
 ```
 
-Anschließend in der UI:
+Anschließend (beide Wege gleich):
 
 1. UUID des Projekts `M365 Inbox` kopieren.
 2. Auf dem `m365-triage`-Agenten ENV `M365_PROJECT_ID` setzen.
