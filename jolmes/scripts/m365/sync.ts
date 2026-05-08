@@ -235,8 +235,14 @@ async function main(): Promise<void> {
     for (const task of tasks) allTasks.push({ task, list });
   }
   const open = allTasks.filter(({ task }) => task.status !== "completed");
+  open.sort((a, b) => {
+    const ta = a.task.lastModifiedDateTime ?? "";
+    const tb = b.task.lastModifiedDateTime ?? "";
+    if (ta === tb) return 0;
+    return ta < tb ? 1 : -1;
+  });
   log(
-    `fetched ${allTasks.length} total · ${open.length} open` +
+    `fetched ${allTasks.length} total · ${open.length} open · sorted by recency` +
       (dryRun ? " · DRY-RUN" : "") +
       (limit > 0 ? ` · limit=${limit}` : ""),
   );
