@@ -14,7 +14,7 @@
       "onAutoForward": "openBrowser"
     }
   },
-  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.4 --activate && pnpm install",
+  "postCreateCommand": "sudo corepack enable && sudo corepack prepare pnpm@9.15.4 --activate && pnpm install",
   "postStartCommand": "test -f .env || cp .env.example .env",
   "remoteEnv": {
     "PAPERCLIP_TELEMETRY_DISABLED": "1",
