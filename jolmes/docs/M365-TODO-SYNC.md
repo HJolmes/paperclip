@@ -72,7 +72,7 @@ Im Microsoft-Entra-Admin-Center (https://entra.microsoft.com):
    - Redirect URI: leer lassen
 2. **Authentication**
    - Allow public client flows: **Yes** (aktiviert Device-Code-Flow)
-   - Mobile and desktop applications → Add platform → "Mobile and desktop": leer (kein Redirect nötig)
+   - Eine Plattform/Redirect-URI ist **nicht** nötig.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated**
    - `Tasks.ReadWrite`
    - `Mail.Read`
