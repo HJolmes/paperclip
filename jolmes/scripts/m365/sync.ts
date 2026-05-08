@@ -12,6 +12,11 @@
  *   M365_TODO_LIST_ID    optional, defaults to the user's default list
  *   M365_PROJECT_ID      Paperclip project for newly created issues
  *   M365_MAIL_TOP        max mails to attach as context (default 3)
+ *   M365_LIMIT           cap on NEW issues created in this run (0 = no cap)
+ *   M365_DRY_RUN         "1" to log planned actions without touching Paperclip
+ *
+ * Open vs completed: completed To-Do tasks are skipped on first encounter.
+ * Once a task is mapped, status updates flow both ways.
  */
 import { graph, graphList, pathId } from "./lib/graph.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
@@ -211,18 +216,41 @@ async function enrichWithMailContext(
 async function main(): Promise<void> {
   const projectId = process.env.M365_PROJECT_ID || undefined;
   const top = Number.parseInt(process.env.M365_MAIL_TOP ?? "3", 10) || 3;
+  const limit = Number.parseInt(process.env.M365_LIMIT ?? "0", 10) || 0;
+  const dryRun = process.env.M365_DRY_RUN === "1";
 
   const listId = await resolveListId();
-  const tasks = await fetchTasks(listId);
-  log(`fetched ${tasks.length} task(s)`);
+  const allTasks = await fetchTasks(listId);
+  const open = allTasks.filter((t) => t.status !== "completed");
+  log(
+    `fetched ${allTasks.length} total · ${open.length} open` +
+      (dryRun ? " · DRY-RUN" : "") +
+      (limit > 0 ? ` · limit=${limit}` : ""),
+  );
 
   const state = await readState();
   let created = 0;
   let reconciled = 0;
   let enriched = 0;
+  let skipped = 0;
 
-  for (const task of tasks) {
+  for (const task of open) {
     try {
+      const isNew = !state.items[task.id];
+      if (isNew && limit > 0 && created >= limit) {
+        skipped += 1;
+        continue;
+      }
+      if (dryRun) {
+        if (isNew) {
+          log(`[dry] would CREATE: "${task.title}" (status=${task.status})`);
+          created += 1;
+        } else {
+          log(`[dry] would RECONCILE: "${task.title}"`);
+          reconciled += 1;
+        }
+        continue;
+      }
       const { entry, created: didCreate } = await ensureIssueForTask(
         task,
         listId,
@@ -242,8 +270,12 @@ async function main(): Promise<void> {
     }
   }
 
-  await writeState(state);
-  log(`done. created=${created} reconciled=${reconciled} enriched=${enriched}`);
+  if (!dryRun) await writeState(state);
+  log(
+    `done. created=${created} reconciled=${reconciled} enriched=${enriched}` +
+      (skipped > 0 ? ` skipped=${skipped} (limit)` : "") +
+      (dryRun ? " (no writes)" : ""),
+  );
 }
 
 main().catch((err) => {
