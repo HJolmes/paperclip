@@ -65,17 +65,17 @@ type TodoList = { id: string; displayName: string; wellknownListName?: string };
 
 const log = (...args: unknown[]): void => console.log("[m365-sync]", ...args);
 
-async function resolveListId(): Promise<string> {
+async function resolveLists(): Promise<TodoList[]> {
   const explicit = process.env.M365_TODO_LIST_ID;
-  if (explicit) return explicit;
   const lists = await graphList<TodoList>("/me/todo/lists");
-  const def =
-    lists.find((l) => l.wellknownListName === "defaultList") ??
-    lists.find((l) => l.displayName === "Tasks") ??
-    lists[0];
-  if (!def) throw new Error("No To-Do lists found for this account.");
-  log(`using list "${def.displayName}" (${def.id})`);
-  return def.id;
+  if (explicit) {
+    const found = lists.find((l) => l.id === explicit);
+    if (!found) throw new Error(`Configured M365_TODO_LIST_ID not found: ${explicit}`);
+    log(`using single list "${found.displayName}"`);
+    return [found];
+  }
+  log(`using ${lists.length} list(s): ${lists.map((l) => l.displayName).join(", ")}`);
+  return lists;
 }
 
 async function fetchTasks(listId: string): Promise<TodoTask[]> {
@@ -130,9 +130,15 @@ function renderMailContext(mails: Message[], linked: TodoTask["linkedResources"]
   return lines.join("\n");
 }
 
+function buildInitialDescription(task: TodoTask, list: TodoList): string {
+  const userBody = task.body?.content?.trim() ?? "";
+  const sourceBlock = `**Quelle:** Microsoft To-Do — Liste «${list.displayName}»`;
+  return userBody ? `${sourceBlock}\n\n${userBody}` : sourceBlock;
+}
+
 async function ensureIssueForTask(
   task: TodoTask,
-  listId: string,
+  list: TodoList,
   projectId: string | undefined,
   state: { items: Record<string, SyncMappingEntry> },
 ): Promise<{ entry: SyncMappingEntry; created: boolean }> {
@@ -141,13 +147,13 @@ async function ensureIssueForTask(
 
   const issue = await createIssue({
     title: task.title || "(unbenanntes To-Do)",
-    description: task.body?.content?.trim() || undefined,
+    description: buildInitialDescription(task, list),
     status: todoToIssueStatus(task.status),
     priority: importanceToPriority(task.importance),
     projectId,
   });
   const entry: SyncMappingEntry = {
-    todoListId: listId,
+    todoListId: list.id,
     issueId: issue.id,
     issueIdentifier: issue.identifier,
     lastTitle: task.title,
@@ -219,9 +225,16 @@ async function main(): Promise<void> {
   const limit = Number.parseInt(process.env.M365_LIMIT ?? "0", 10) || 0;
   const dryRun = process.env.M365_DRY_RUN === "1";
 
-  const listId = await resolveListId();
-  const allTasks = await fetchTasks(listId);
-  const open = allTasks.filter((t) => t.status !== "completed");
+  const lists = await resolveLists();
+
+  type TaskWithList = { task: TodoTask; list: TodoList };
+  const allTasks: TaskWithList[] = [];
+  for (const list of lists) {
+    const tasks = await fetchTasks(list.id);
+    log(`  ${list.displayName}: ${tasks.length} task(s)`);
+    for (const task of tasks) allTasks.push({ task, list });
+  }
+  const open = allTasks.filter(({ task }) => task.status !== "completed");
   log(
     `fetched ${allTasks.length} total · ${open.length} open` +
       (dryRun ? " · DRY-RUN" : "") +
@@ -234,7 +247,7 @@ async function main(): Promise<void> {
   let enriched = 0;
   let skipped = 0;
 
-  for (const task of open) {
+  for (const { task, list } of open) {
     try {
       const isNew = !state.items[task.id];
       if (isNew && limit > 0 && created >= limit) {
@@ -243,7 +256,7 @@ async function main(): Promise<void> {
       }
       if (dryRun) {
         if (isNew) {
-          log(`[dry] would CREATE: "${task.title}" (status=${task.status})`);
+          log(`[dry] would CREATE: «${list.displayName}» "${task.title}" (status=${task.status})`);
           created += 1;
         } else {
           log(`[dry] would RECONCILE: "${task.title}"`);
@@ -253,7 +266,7 @@ async function main(): Promise<void> {
       }
       const { entry, created: didCreate } = await ensureIssueForTask(
         task,
-        listId,
+        list,
         projectId,
         state,
       );
