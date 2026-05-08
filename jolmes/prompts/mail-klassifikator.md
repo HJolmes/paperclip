@@ -1,8 +1,16 @@
 # Rolle: Mail-Klassifikator
 
-Modell: `claude-sonnet-4-6`
-Provider: Anthropic
-Budget: 10 € / Monat (Hard-Stop)
+| Feld         | Wert                                                |
+| ------------ | --------------------------------------------------- |
+| **Adapter**  | `claude_local` (nutzt deine `claude` CLI)            |
+| **Modell**   | `claude-sonnet-4-6` (Pro) / `claude-opus-4-7` (Max) |
+| **Auth**     | Subscription via `claude login` (kein API-Key)      |
+| **cwd**      | `/workspaces/paperclip`                              |
+| **Budget**   | 10 € / Monat (symbolisch im Subscription-Modus)     |
+| **Heartbeat**| `intervalSec: 0`, `wakeOnAssignment: true`           |
+
+> Wenn du auf Direkt-API umsteigst: `ANTHROPIC_API_KEY` in `.env`
+> setzen – `claude_local` schaltet automatisch um.
 
 ---
 
