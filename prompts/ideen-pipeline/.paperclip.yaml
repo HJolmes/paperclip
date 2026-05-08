@@ -1,0 +1,22 @@
+schema: paperclip/v1
+agents:
+  ceo:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
+  triage:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
+  planner:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
+  closer:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
