@@ -4,11 +4,7 @@ const apiUrl = (): string => {
   return url.replace(/\/+$/, "");
 };
 
-const apiKey = (): string => {
-  const key = process.env.PAPERCLIP_API_KEY;
-  if (!key) throw new Error("PAPERCLIP_API_KEY not set.");
-  return key;
-};
+const apiKey = (): string | null => process.env.PAPERCLIP_API_KEY ?? null;
 
 const runId = (): string | null => process.env.PAPERCLIP_RUN_ID ?? null;
 
@@ -18,15 +14,12 @@ export const companyId = (): string => {
   return id;
 };
 
-export const agentId = (): string => {
-  const id = process.env.PAPERCLIP_AGENT_ID;
-  if (!id) throw new Error("PAPERCLIP_AGENT_ID not set.");
-  return id;
-};
+export const agentId = (): string | null => process.env.PAPERCLIP_AGENT_ID ?? null;
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${apiKey()}`);
+  const key = apiKey();
+  if (key) headers.set("Authorization", `Bearer ${key}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const rid = runId();
   if (rid) headers.set("X-Paperclip-Run-Id", rid);

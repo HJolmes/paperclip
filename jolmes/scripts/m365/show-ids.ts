@@ -11,16 +11,16 @@
  */
 
 const API_URL = process.env.PAPERCLIP_API_URL?.replace(/\/+$/, "");
-const API_KEY = process.env.PAPERCLIP_API_KEY;
-if (!API_URL || !API_KEY) {
-  console.error("Set PAPERCLIP_API_URL and PAPERCLIP_API_KEY first.");
+const API_KEY = process.env.PAPERCLIP_API_KEY ?? null;
+if (!API_URL) {
+  console.error("Set PAPERCLIP_API_URL first (e.g. http://localhost:3100).");
   process.exit(1);
 }
 
 async function call<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  });
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers.Authorization = `Bearer ${API_KEY}`;
+  const res = await fetch(`${API_URL}${path}`, { headers });
   if (!res.ok) throw new Error(`${path} -> ${res.status} ${await res.text()}`);
   return (await res.json()) as T;
 }
@@ -32,8 +32,8 @@ type Agent = { id: string; name: string; slug?: string; urlKey?: string };
 async function main(): Promise<void> {
   let companyId = process.env.PAPERCLIP_COMPANY_ID?.trim();
   if (!companyId) {
-    const me = await call<{ companies: Company[] }>(`/api/me`);
-    const companies = me.companies ?? [];
+    const list = await call<{ value?: Company[] } | Company[]>(`/api/companies`);
+    const companies = (Array.isArray(list) ? list : (list.value ?? [])) as Company[];
     const prefix = process.env.PAPERCLIP_COMPANY_PREFIX?.trim().toUpperCase();
     const match = prefix
       ? companies.find((c) => c.urlPrefix?.toUpperCase() === prefix || c.shortName?.toUpperCase() === prefix)
