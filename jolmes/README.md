@@ -14,7 +14,9 @@ konfliktfrei.
 | ------------------------------------- | ---------------------------------------------------------- |
 | `jolmes/SETUP.md`                     | Schritt-für-Schritt-Anleitung Phase 1                      |
 | `jolmes/bootstrap.sh`                 | Idempotenter Setup-Lauf (deps, .env, migrate)              |
-| `jolmes/prompts/mail-klassifikator.md`| System-Prompts für die erste Rolle                          |
+| `jolmes/prompts/operations-lead.md`   | System-Prompt für den Cockpit-Bot (oberste Ebene)           |
+| `jolmes/prompts/objekt-manager.md`    | System-Prompt-Template für Objekt-Manager pro Standort      |
+| `jolmes/prompts/_archive/`            | Verworfene Prompts (z. B. Phase-1-Mail-Klassifikator)        |
 | `jolmes/docs/SMOKE-TEST.md`           | Runbook für den End-to-End-Test                            |
 | `jolmes/docs/PHASE-2-AZURE.md`        | Architektur-Skizze für Phase 2 (Azure + M365)              |
 

@@ -132,7 +132,9 @@ In der UI auf `:3100`:
      *(falls Pro-Abo; mit Max kannst du `claude-opus-4-7` nehmen)*
    - `cwd`: `/workspaces/paperclip` (Codespace-Workspace)
    - Prompt-Template: copy-paste aus
-     [`jolmes/prompts/mail-klassifikator.md`](./prompts/mail-klassifikator.md)
+     [`jolmes/prompts/_archive/mail-klassifikator.md`](./prompts/_archive/mail-klassifikator.md)
+     *(nur Phase-1-Smoke-Test; produktive Rollen siehe
+     `operations-lead.md` und `objekt-manager.md`)*
    - Heartbeat: `intervalSec: 0` (manueller Trigger fürs Testen),
      `wakeOnAssignment: true`
    - Budget: 10 € / Monat – im Subscription-Modus eher
