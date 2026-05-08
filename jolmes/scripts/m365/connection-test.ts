@@ -1,4 +1,4 @@
-import { graph, graphList } from "./lib/graph.js";
+import { graph, graphList, pathId } from "./lib/graph.js";
 
 type TodoList = { id: string; displayName: string; wellknownListName?: string };
 type Task = { id: string; title: string; status: string; importance?: string };
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     return;
   }
   const tasks = await graph<{ value: Task[] }>(
-    `/me/todo/lists/${encodeURIComponent(def.id)}/tasks?$top=5&$select=id,title,status,importance`,
+    `/me/todo/lists/${pathId(def.id)}/tasks?$top=5&$select=id,title,status,importance`,
   );
   console.log(`\nErste 5 Tasks aus "${def.displayName}":`);
   for (const t of tasks.value) {

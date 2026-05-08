@@ -74,6 +74,15 @@ export async function graph<T = unknown>(
   return (await res.json()) as T;
 }
 
+/**
+ * Outlook/To-Do item ids are base64 strings; their trailing '=' padding
+ * confuses the Graph path parser even when URL-encoded. Strip padding,
+ * then URL-encode for safety against future special chars.
+ */
+export function pathId(id: string): string {
+  return encodeURIComponent(id.replace(/=+$/, ""));
+}
+
 export async function graphList<T>(path: string): Promise<T[]> {
   const out: T[] = [];
   let next: string | null = path;

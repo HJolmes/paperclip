@@ -13,7 +13,7 @@
  *   M365_PROJECT_ID      Paperclip project for newly created issues
  *   M365_MAIL_TOP        max mails to attach as context (default 3)
  */
-import { graph, graphList } from "./lib/graph.js";
+import { graph, graphList, pathId } from "./lib/graph.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
 import {
   importanceToPriority,
@@ -75,7 +75,7 @@ async function resolveListId(): Promise<string> {
 
 async function fetchTasks(listId: string): Promise<TodoTask[]> {
   return graphList<TodoTask>(
-    `/me/todo/lists/${encodeURIComponent(listId)}/tasks?$top=100&$expand=linkedResources`,
+    `/me/todo/lists/${pathId(listId)}/tasks?$top=100&$expand=linkedResources`,
   );
 }
 
@@ -189,13 +189,10 @@ async function reconcileExisting(
 }
 
 async function markTodoCompleted(listId: string, taskId: string): Promise<void> {
-  await graph(
-    `/me/todo/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ status: "completed" }),
-    },
-  );
+  await graph(`/me/todo/lists/${pathId(listId)}/tasks/${pathId(taskId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "completed" }),
+  });
 }
 
 async function enrichWithMailContext(
