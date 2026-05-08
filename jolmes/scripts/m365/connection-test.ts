@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     return;
   }
   const tasks = await graph<{ value: Task[] }>(
-    `/me/todo/lists/${def.id}/tasks?$top=5&$select=id,title,status,importance`,
+    `/me/todo/lists/${encodeURIComponent(def.id)}/tasks?$top=5&$select=id,title,status,importance`,
   );
   console.log(`\nErste 5 Tasks aus "${def.displayName}":`);
   for (const t of tasks.value) {

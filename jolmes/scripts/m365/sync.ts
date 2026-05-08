@@ -75,7 +75,7 @@ async function resolveListId(): Promise<string> {
 
 async function fetchTasks(listId: string): Promise<TodoTask[]> {
   return graphList<TodoTask>(
-    `/me/todo/lists/${listId}/tasks?$top=100&$expand=linkedResources`,
+    `/me/todo/lists/${encodeURIComponent(listId)}/tasks?$top=100&$expand=linkedResources`,
   );
 }
 
@@ -189,10 +189,13 @@ async function reconcileExisting(
 }
 
 async function markTodoCompleted(listId: string, taskId: string): Promise<void> {
-  await graph(`/me/todo/lists/${listId}/tasks/${taskId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status: "completed" }),
-  });
+  await graph(
+    `/me/todo/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "completed" }),
+    },
+  );
 }
 
 async function enrichWithMailContext(
