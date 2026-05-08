@@ -5,6 +5,9 @@
 
 Letzter Stand: **2026-05-08** · Branch `master` · Codespace lief unter Subscription-Modus.
 
+> Aktiver Feature-Branch: `claude/paperclip-email-todos-WJN1k` —
+> Setup für Use Case **„To-Dos mit Mail-Kontext"**. Siehe Abschnitt 9.
+
 ---
 
 ## 1. Wer und was
@@ -175,3 +178,56 @@ Copy-paste in eine neue Claude-Code-Session:
 > Lies `jolmes/SESSION-NOTES.md`. Wir machen weiter beim Punkt …
 > (entweder „Pilot-Objekt benennen", „Hetzner-Deployment", „On-Prem-Setup"
 > oder „Sub-Rolle Objekt-Manager"). Sprache Deutsch, knapp.
+
+---
+
+## 9. Use Case „To-Dos mit Mail-Kontext" (Branch `…-email-todos-WJN1k`)
+
+Parallel zum Objekt-Manager-Strang läuft ein zweiter, persönlicher Use Case:
+Henning will seine Microsoft-To-Do-Aufgaben automatisch mit Kontext aus
+seinem Outlook-Postfach anreichern, damit er sie strukturiert abarbeiten
+kann.
+
+### 9.1 Entscheidung (akzeptiert 2026-05-08)
+
+- **Neuer Agent**: `M365-Triage` (claude_local, Sonnet 4.6)
+- **Konfliktregeln**: Standard übernommen
+  - title/status: To-Do gewinnt
+  - description: Paperclip gewinnt
+  - neue Items: nur To-Do → Paperclip
+  - close-in-one closes the other
+- **Trigger**: Cron `*/15 * * * *` Europe/Berlin
+- **Hosting Phase 1**: Codespace, Phase 2 zusammen mit dem Rest auf
+  Hetzner/On-Prem.
+
+### 9.2 Was schon gebaut ist
+
+| Datei                                            | Zweck                                  |
+| ------------------------------------------------ | -------------------------------------- |
+| `jolmes/scripts/m365/bootstrap.ts`               | Device-Code-Login, Refresh-Token-Bake  |
+| `jolmes/scripts/m365/sync.ts`                    | Sync-Lauf (Graph ↔ Paperclip)          |
+| `jolmes/scripts/m365/lib/{paths,secrets,graph,state,mapping,paperclip}.ts` | Helfer |
+| `jolmes/prompts/m365-triage.md`                  | System-Prompt                          |
+| `jolmes/docs/M365-TODO-SYNC.md`                  | Runbook (Entra-Setup → Smoke-Test)     |
+| `.env.example`                                   | Erweitert um `M365_*`-Hinweis          |
+
+### 9.3 Was Henning noch tun muss (~10 Min)
+
+1. Entra-App registrieren (siehe Runbook §1).
+2. `M365_TENANT_ID` + `M365_CLIENT_ID` mitteilen oder selbst exportieren.
+3. `pnpm dlx tsx jolmes/scripts/m365/bootstrap.ts` einmalig laufen lassen.
+4. Im Paperclip-UI Projekt `M365 Inbox` anlegen, Agent erstellen, Routine
+   verdrahten (alle Schritte als curl/HTTP im Runbook).
+
+### 9.4 Risiken / offene Punkte
+
+- **Datei-Persistenz**: `~/.paperclip/secrets/m365.json` lebt im
+  Codespace-Volume. Beim Codespace-Delete weg → Bootstrap neu.
+- **Graph `$search`**: braucht in manchen Tenants explizites
+  `ConsistencyLevel: eventual` — gesetzt. Falls leere Treffer, Tenant-Policy
+  prüfen.
+- **Kein DB-Backed-State**: Mapping liegt als JSON. Bei Konflikten
+  Multi-Agent in Phase 2 ggf. auf SQLite migrieren.
+- **Description-Konflikt**: Agent reichert Description **nicht** an, sondern
+  nur Kommentare. Falls Description-Anreicherung gewünscht → Skript-
+  Erweiterung, Konfliktregeln neu klären.
