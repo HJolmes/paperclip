@@ -109,10 +109,38 @@ Nächste Iteration: System-Prompt des Operations-Leads explizit auf
 Suchanfragen. Damit kann der Bot Beschwerden selbst aus dem Postfach
 holen statt manuelles Copy-Paste.
 
-### 5e. Datei-Persistenz
-`jolmes/objekt-steckbrief-template.md` lebt nur im Codespace-FS.
-Vor nächster Session: committen und pushen, sonst weg, wenn der
-Codespace geschlossen/gelöscht wird.
+### 5e. Datei-Persistenz – Erkenntnis dokumentiert
+
+**Wichtige Beobachtung am 2026-05-08:** Paperclip-Agenten arbeiten in
+**isolierten Sandbox-Working-Directories** unter
+
+```
+~/.paperclip/instances/default/projects/<project-UUID>/<run-UUID>/_default/
+```
+
+Wenn der Bot eine Datei mit dem `Write`-Tool anlegt, landet sie **dort**,
+**nicht** in `/workspaces/paperclip/`. Konsequenzen:
+
+- Outputs wandern nicht automatisch ins Repo
+- Bei Codespace-Delete sind sie weg (Codespace-Filesystem ≠ Repo)
+- Auch beim nächsten Heartbeat-Run: **frische Sandbox**, alte Files
+  nicht automatisch sichtbar
+
+**Bewährte Muster:**
+
+1. **Per Hand kopieren** nach jedem produktiven Run:
+   ```bash
+   find ~/.paperclip/instances -name "<datei>.md" 2>/dev/null
+   cp <gefundener-pfad> /workspaces/paperclip/jolmes/
+   ```
+2. **Agent anweisen, am Ende `git add && git commit && git push`** zu
+   machen – setzt voraus, dass der Agent-Sandbox-cwd der echte Repo-
+   Checkout ist (Adapter-Setting `cwd: /workspaces/paperclip`)
+3. **Skills-Folder als persistenten Pfad konfigurieren** im Adapter-
+   Setting, damit zumindest Lese-Daten erhalten bleiben
+
+**Phase-1-Status:** `objekt-steckbrief-template.md` wurde manuell aus
+der Sandbox geholt und auf master gepusht (Commit `948db64`).
 
 ## 6. Repo-Struktur (Stand)
 
