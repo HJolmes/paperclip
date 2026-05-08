@@ -1,0 +1,37 @@
+{
+  "name": "Paperclip (Jolmes)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true
+    }
+  },
+  "forwardPorts": [3100],
+  "portsAttributes": {
+    "3100": {
+      "label": "Paperclip API + UI",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.4 --activate && pnpm install",
+  "postStartCommand": "test -f .env || cp .env.example .env",
+  "remoteEnv": {
+    "PAPERCLIP_TELEMETRY_DISABLED": "1",
+    "DO_NOT_TRACK": "1",
+    "HOST": "0.0.0.0"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      }
+    }
+  }
+}
