@@ -18,8 +18,7 @@
   "postStartCommand": "test -f .env || cp .env.example .env",
   "remoteEnv": {
     "PAPERCLIP_TELEMETRY_DISABLED": "1",
-    "DO_NOT_TRACK": "1",
-    "HOST": "0.0.0.0"
+    "DO_NOT_TRACK": "1"
   },
   "customizations": {
     "vscode": {
