@@ -75,12 +75,14 @@ export async function graph<T = unknown>(
 }
 
 /**
- * Outlook/To-Do item ids are base64 strings; their trailing '=' padding
- * confuses the Graph path parser even when URL-encoded. Strip padding,
- * then URL-encode for safety against future special chars.
+ * Outlook/To-Do item ids must be embedded raw in the URL path. Graph rejects
+ * the request both when the trailing '=' padding is stripped (ErrorInvalid-
+ * IdMalformed) and when '=' is percent-encoded as '%3D' (ParseUri 400).
+ * Encode any unsafe characters that may legally appear (currently none in
+ * practice — Outlook uses URL-safe base64 — but defensive), then restore '='.
  */
 export function pathId(id: string): string {
-  return encodeURIComponent(id.replace(/=+$/, ""));
+  return encodeURIComponent(id).replace(/%3D/g, "=");
 }
 
 export async function graphList<T>(path: string): Promise<T[]> {
