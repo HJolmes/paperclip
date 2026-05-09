@@ -172,11 +172,13 @@ async function ensureIssueForTask(
 async function reconcileExisting(
   task: TodoTask,
   entry: SyncMappingEntry,
-): Promise<void> {
+  state: { items: Record<string, SyncMappingEntry> },
+): Promise<"reconciled" | "orphan-removed"> {
   const issue = await getIssue(entry.issueId).catch(() => null);
   if (!issue) {
-    log(`issue ${entry.issueId} for todo ${task.id} disappeared; skipping`);
-    return;
+    log(`issue ${entry.issueId} for todo ${task.id} disappeared; removing mapping`);
+    delete state.items[task.id];
+    return "orphan-removed";
   }
 
   const desiredStatus = todoToIssueStatus(task.status);
@@ -329,8 +331,8 @@ async function main(): Promise<void> {
         await enrichWithMailContext(task, entry, top);
         if (entry.enrichedAt) enriched += 1;
       } else {
-        await reconcileExisting(task, entry);
-        reconciled += 1;
+        const outcome = await reconcileExisting(task, entry, state);
+        if (outcome === "reconciled") reconciled += 1;
       }
     } catch (err) {
       log(`task ${task.id} (${task.title}) failed:`, (err as Error).message);
