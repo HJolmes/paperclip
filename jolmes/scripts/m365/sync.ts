@@ -234,7 +234,10 @@ async function main(): Promise<void> {
     log(`  ${list.displayName}: ${tasks.length} task(s)`);
     for (const task of tasks) allTasks.push({ task, list });
   }
-  const open = allTasks.filter(({ task }) => task.status !== "completed");
+  const state = await readState();
+  const open = allTasks.filter(
+    ({ task }) => task.status !== "completed" || state.items[task.id],
+  );
   open.sort((a, b) => {
     const ta = a.task.lastModifiedDateTime ?? "";
     const tb = b.task.lastModifiedDateTime ?? "";
@@ -242,12 +245,11 @@ async function main(): Promise<void> {
     return ta < tb ? 1 : -1;
   });
   log(
-    `fetched ${allTasks.length} total · ${open.length} open · sorted by recency` +
+    `fetched ${allTasks.length} total · ${open.length} active+mapped · sorted by recency` +
       (dryRun ? " · DRY-RUN" : "") +
       (limit > 0 ? ` · limit=${limit}` : ""),
   );
 
-  const state = await readState();
   let created = 0;
   let reconciled = 0;
   let enriched = 0;
