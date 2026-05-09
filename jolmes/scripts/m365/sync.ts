@@ -223,11 +223,9 @@ async function enrichWithMailContext(
   top: number,
 ): Promise<void> {
   const sections: string[] = [];
-
-  // Try every linkedResource externalId; first one that resolves to an
-  // Outlook message wins. Microsoft does not set applicationName reliably,
-  // so we don't filter on it.
   let threadFound = false;
+
+  // 1) Try linkedResource externalIds directly.
   for (const candidate of candidateMessageIds(task)) {
     const thread = await summariseThread(candidate).catch(() => null);
     if (thread) {
@@ -237,13 +235,23 @@ async function enrichWithMailContext(
     }
   }
 
-  // Fallback: free-text search for tasks without a working linked message.
-  const linkedHas = task.linkedResources && task.linkedResources.length > 0;
-  if (!threadFound) {
-    const mails = await searchMails(task.title, top);
-    if (linkedHas || mails.length > 0) {
-      sections.push(renderMailContext(mails, task.linkedResources));
+  // Search once if we still need fallback material.
+  const mails = threadFound ? [] : await searchMails(task.title, top);
+
+  // 2) Use the first search hit as a thread seed (its conversationId
+  //    is what we actually need; the message id resolves reliably).
+  if (!threadFound && mails.length > 0) {
+    const thread = await summariseThread(mails[0].id).catch(() => null);
+    if (thread) {
+      sections.push(renderThread(thread));
+      threadFound = true;
     }
+  }
+
+  // 3) Last resort: top-hit-list rendering (the old shape).
+  const linkedHas = task.linkedResources && task.linkedResources.length > 0;
+  if (!threadFound && (linkedHas || mails.length > 0)) {
+    sections.push(renderMailContext(mails, task.linkedResources));
   }
 
   if (sections.length === 0) return;
