@@ -20,6 +20,7 @@
  */
 import { graph, graphList, pathId } from "./lib/graph.js";
 import { renderThread, summariseThread } from "./lib/conversation.js";
+import { readConfig } from "./lib/config.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
 import {
   importanceToPriority,
@@ -67,7 +68,8 @@ type TodoList = { id: string; displayName: string; wellknownListName?: string };
 const log = (...args: unknown[]): void => console.log("[m365-sync]", ...args);
 
 async function resolveLists(): Promise<TodoList[]> {
-  const explicit = process.env.M365_TODO_LIST_ID;
+  const cfg = await readConfig();
+  const explicit = process.env.M365_TODO_LIST_ID || cfg.todoListId;
   const lists = await graphList<TodoList>("/me/todo/lists");
   if (explicit) {
     const found = lists.find((l) => l.id === explicit);
@@ -260,8 +262,12 @@ async function enrichWithMailContext(
 }
 
 async function main(): Promise<void> {
-  const projectId = process.env.M365_PROJECT_ID || undefined;
-  const top = Number.parseInt(process.env.M365_MAIL_TOP ?? "3", 10) || 3;
+  const cfg = await readConfig();
+  const projectId = process.env.M365_PROJECT_ID || cfg.projectId || undefined;
+  const top =
+    Number.parseInt(process.env.M365_MAIL_TOP ?? "", 10) ||
+    cfg.mailTop ||
+    3;
   const limit = Number.parseInt(process.env.M365_LIMIT ?? "0", 10) || 0;
   const dryRun = process.env.M365_DRY_RUN === "1";
 
