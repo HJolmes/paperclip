@@ -48,10 +48,10 @@ const isSelf = (m: ConversationMessage, self: string | null): boolean => {
 export async function loadMessage(
   messageId: string,
 ): Promise<ConversationMessage | null> {
+  // No $select — comma in the value trips Graph's URL parser on this tenant.
+  // Response is small enough that fetching all fields is fine.
   try {
-    return await graph<ConversationMessage>(
-      `/me/messages/${pathId(messageId)}?$select=id,subject,conversationId,receivedDateTime,from,toRecipients,bodyPreview,webLink`,
-    );
+    return await graph<ConversationMessage>(`/me/messages/${pathId(messageId)}`);
   } catch {
     return null;
   }
@@ -61,11 +61,13 @@ export async function loadThread(
   conversationId: string,
   maxMessages = 25,
 ): Promise<ConversationMessage[]> {
-  // $filter on conversationId requires the value in single quotes; keep raw.
+  // $filter and $orderby contain spaces and quotes that must be URL-encoded.
+  const filter = `conversationId eq '${conversationId}'`;
   const url =
-    `/me/messages?$top=${maxMessages}` +
-    `&$orderby=receivedDateTime asc` +
-    `&$filter=conversationId eq '${conversationId}'`;
+    `/me/messages` +
+    `?$top=${maxMessages}` +
+    `&$filter=${encodeURIComponent(filter)}` +
+    `&$orderby=${encodeURIComponent("receivedDateTime asc")}`;
   try {
     const res = await graph<{ value: ConversationMessage[] }>(url, {
       headers: { ConsistencyLevel: "eventual" },
