@@ -1,0 +1,27 @@
+schema: paperclip/v1
+agents:
+  productivity-lead:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
+  m365-triage:
+    adapter:
+      type: claude_local
+      config:
+        model: claude-sonnet-4-6
+    inputs:
+      env:
+        M365_PROJECT_ID:
+          kind: text
+          requirement: required
+          description: Paperclip project UUID for the M365 Inbox project. Set after import.
+        M365_TODO_LIST_ID:
+          kind: text
+          requirement: optional
+          description: Microsoft To-Do list id. Empty = use the user's default list.
+        M365_MAIL_TOP:
+          kind: text
+          requirement: optional
+          default: "3"
+          description: How many mail-search hits to attach as context per new issue.
