@@ -231,3 +231,125 @@ kann.
 - **Description-Konflikt**: Agent reichert Description **nicht** an, sondern
   nur Kommentare. Falls Description-Anreicherung gewünscht → Skript-
   Erweiterung, Konfliktregeln neu klären.
+
+---
+
+## 10. Live-Stand „M365 To-Do Sync" (2026-05-09)
+
+Der Sync läuft. Diese Sektion ersetzt § 9 als aktueller Stand.
+
+### 10.1 Was steht
+
+**Eigene Company `Henning Personal Ops` (Prefix `HEN`).**
+- Company-ID: `75fb6ae7-67e0-4d25-a8d4-5a364b72074a`
+- Project `M365 Inbox` ID: `e442bc37-d976-4448-ab2c-f3130f3485b1`
+- Agents:
+  - `M365-Triage` (`909cbf0a-ceeb-4eff-9768-7870967601b1`) — autonomer Sync-Worker
+  - `Productivity-Lead` (`1d2b1d08-7aa7-47b6-9b2d-e906b794b29b`) — Hennings einziger Ansprechpartner
+
+**Routine `M365 To-Do Sync`** (`87b07877-cb27-4bf7-bbce-0e723d2e12b6`)
+mit Schedule-Trigger `*/15 * * * *` Europe/Berlin, Cron-getriggert seit 00:35
+UTC am 2026-05-09.
+
+**Microsoft 365**:
+- Entra-App registriert, Tenant `908b64a0-e899-4080-bbec-2fe62f9943ec`,
+  Client `8a558036-fb75-4273-a0b9-d233f63ed5ca`.
+- Refresh-Token in `~/.paperclip/secrets/m365.json` (mode 0600).
+- Sync-Konfig in `~/.paperclip/state/m365-todo-sync.config.json`
+  (`projectId` zeigt auf M365 Inbox).
+- Mapping-State in `~/.paperclip/state/m365-todo-sync.json`
+  (132 Einträge nach erstem Voll-Sync).
+
+**Paperclip M365 Inbox**:
+- 132 Issues von 134 offenen To-Do-Tasks gemappt
+  (alle 12 Listen inkl. „Flagged Emails" werden aggregiert).
+- 34 davon sind Karteileichen mit Status `cancelled` aus den frühen
+  Reset-Versuchen — in der UI ausgeblendet, Skript respektiert sie.
+- Aktive Issues haben:
+  - „**Quelle:** Microsoft To-Do — Liste «…»" in der Description
+  - Mail-Kontext-Kommentar mit Top-3-Treffern aus Outlook-Volltextsuche
+
+### 10.2 Konfliktregeln (verbindlich)
+
+- **title/status**: To-Do gewinnt
+- **description**: Paperclip gewinnt (Initial-Anlage einmalig, danach nie überschrieben)
+- **neue Items**: nur To-Do → Paperclip
+- **close in einem Ort** schließt im anderen
+- **lastModifiedDateTime <= lastSyncedAt** + Status unverändert → Task wird übersprungen
+  (Performance-Fast-Path; Skript läuft im Heartbeat in Sekunden statt Minuten)
+
+### 10.3 Skripte unter `jolmes/scripts/m365/`
+
+| Datei                       | Zweck                                               |
+| --------------------------- | --------------------------------------------------- |
+| `bootstrap.ts`              | Einmalig: Device-Code-Login → Refresh-Token         |
+| `connection-test.ts`        | Listen + Top-5-Tasks anzeigen (Diagnose)           |
+| `probe.ts`                  | 8 Graph-URL-Varianten testen (URL-Encoding-Bugs)    |
+| `sync.ts`                   | Hauptlauf — wird vom Agent im Heartbeat aufgerufen |
+| `configure.ts`              | Schreibt sync.config.json                           |
+| `show-ids.ts`               | Listet Company/Project/Agent-UUIDs                  |
+| `update-agent-prompt.ts`    | Pusht AGENTS.md-Body in Live-Agent                  |
+| `reset.ts`                  | Cancellt sync-erstellte Issues + leert State        |
+| `lib/{graph,paperclip,conversation,state,config,secrets,mapping,paths}.ts` | Helfer |
+
+### 10.4 Was funktioniert, was nicht
+
+**Funktioniert** (verifiziert):
+- ✅ Status-Sync To-Do → Paperclip (HEN-2 wurde abgehakt → automatisch `done`)
+- ✅ Status-Sync Paperclip → To-Do (HEN-3 auf `done` → in To-Do durchgestrichen)
+- ✅ Mail-Kontext via Outlook-Volltextsuche (Top-3-Treffer mit Subject/Absender/Datum/Snippet/Link)
+- ✅ Listen-übergreifender Sync (alle 12 Listen, 132 Tasks)
+- ✅ Performance-Fast-Path (`unchanged=132` in unter 30 Sek lokal)
+- ✅ Routine-Heartbeat mit `claude_local`-Adapter (Agent kommentiert auf Deutsch)
+
+**Funktioniert NICHT** (zurückgestellt):
+- ❌ Mail-Thread-Anreicherung (`## Mail-Thread`-Block via `conversationId`).
+  Code ist drin (`lib/conversation.ts`), greift aber nicht — Microsoft
+  liefert für die `linkedResource.externalId` keine direkt nutzbare
+  Mail-ID, und der Search-Hit-Fallback hat einen Bug. Aktuell rendern
+  alle neuen Issues die alte „Top-Treffer"-Form. Henning hat entschieden:
+  reicht so, später bei Bedarf fixen.
+
+### 10.5 Bekannte Eigenarten
+
+- **Hard-DELETE auf Paperclip-Issues** wirft 500 für Issues mit
+  Comments/Documents (kein CASCADE). Workaround in `reset.ts`: PATCH
+  status=cancelled. Dadurch entstehen Karteileichen.
+- **Microsoft-Graph-URL-Encoding**: Outlook-IDs müssen mit rohem `=`
+  (ohne `%3D`) im Pfad bleiben. `lib/graph.ts:pathId` macht das.
+  `$select=...` mit Komma trippt den Path-Parser → wir verzichten auf `$select`.
+  `$filter=conversationId eq '...'` muss URL-encoded sein.
+- **Subscription-Mode**: Der `claude_local`-Adapter läuft über Hennings
+  Pro/Max-Abo. Kein `ANTHROPIC_API_KEY` nötig.
+- **`local_trusted` Deployment-Mode**: Im Codespace authentifiziert sich
+  jeder API-Call automatisch als „Local Board" — kein Bearer-Token nötig.
+  In Phase 2 (Hetzner) brauchen wir explizite API-Keys.
+
+### 10.6 Wenn was schiefgeht (Symptom → Aktion)
+
+| Symptom                                       | Aktion                                                          |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| `M365 secret missing`                         | `pnpm dlx tsx jolmes/scripts/m365/bootstrap.ts` neu             |
+| `Token refresh failed (400 invalid_grant)`    | Bootstrap neu (Passwort/MFA hat Token invalidiert)              |
+| Sync hängt > 5 Min im Heartbeat               | Run-Issue auf cancelled → check `lastModifiedDateTime`-Filter    |
+| State korrupt                                 | `rm ~/.paperclip/state/m365-todo-sync.json`, voller Re-Sync     |
+| Komische orphan-Mappings                      | `pnpm dlx tsx jolmes/scripts/m365/sync.ts` (räumt auto auf)     |
+| Issue-Identifier finden                       | `curl -sS http://localhost:3100/api/issues/<uuid>`              |
+
+### 10.7 Nächste mögliche Themen
+
+- **Cleanup-Routine** für die 34 cancelled Karteileichen (löschen über
+  DB direkt, weil API es ablehnt).
+- **Mail-Thread-Anreicherung** doch noch fixen (`lib/conversation.ts`).
+- **Weitere Agents** in `Henning Personal Ops`: Wochenrückblick,
+  Tagesplaner, Mail-Triage-Heuristik.
+- **Phase-2-Migration** auf Hetzner / On-Prem (siehe § 5b).
+
+### 10.8 Aufwärm-Prompt für die nächste Session
+
+```
+Lies jolmes/SESSION-NOTES.md, ab Abschnitt 10 (Live-Stand M365 To-Do Sync).
+Routine läuft alle 15 Min, Henning Personal Ops ist auf master.
+Nächstes Thema: <wähle eins aus § 10.7>.
+Sprache Deutsch, knapp.
+```
