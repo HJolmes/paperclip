@@ -303,14 +303,32 @@ async function main(): Promise<void> {
   let reconciled = 0;
   let enriched = 0;
   let skipped = 0;
+  let unchanged = 0;
 
   for (const { task, list } of open) {
     try {
-      const isNew = !state.items[task.id];
+      const existing = state.items[task.id];
+      const isNew = !existing;
       if (isNew && limit > 0 && created >= limit) {
         skipped += 1;
         continue;
       }
+
+      // Fast path: skip tasks that have not changed since last sync.
+      // lastModifiedDateTime is updated by Microsoft on title, status,
+      // body, and importance changes — exactly the fields we sync.
+      if (
+        !isNew &&
+        !dryRun &&
+        existing.lastSyncedAt &&
+        task.lastModifiedDateTime &&
+        task.lastModifiedDateTime <= existing.lastSyncedAt &&
+        task.status === existing.lastTodoStatus
+      ) {
+        unchanged += 1;
+        continue;
+      }
+
       if (dryRun) {
         if (isNew) {
           log(`[dry] would CREATE: «${list.displayName}» "${task.title}" (status=${task.status})`);
@@ -343,6 +361,7 @@ async function main(): Promise<void> {
   if (!dryRun) await writeState(state);
   log(
     `done. created=${created} reconciled=${reconciled} enriched=${enriched}` +
+      (unchanged > 0 ? ` unchanged=${unchanged}` : "") +
       (skipped > 0 ? ` skipped=${skipped} (limit)` : "") +
       (dryRun ? " (no writes)" : ""),
   );
