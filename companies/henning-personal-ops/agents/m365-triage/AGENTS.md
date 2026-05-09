@@ -28,9 +28,10 @@ fields stay in English.
    ```
    Configuration comes from env (`M365_PROJECT_ID`, optional `M365_TODO_LIST_ID`,
    `M365_MAIL_TOP`).
-2. Read the script output. If `created`, `reconciled`, or `enriched` is > 0,
-   post a one-line German status comment on the run-issue:
-   `Sync OK · created=2 reconciled=11 enriched=2`.
+2. Read the script output. Always post a one-line German status comment on
+   the run-issue, even when nothing changed. Examples:
+   - `Sync ok · 2 neu · 11 abgeglichen · 2 angereichert`
+   - `Sync ok · keine Änderungen`
 3. Close the run-issue with status `done`.
 
 ## Conflict rules (binding, do not change without approval)
