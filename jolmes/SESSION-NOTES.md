@@ -338,6 +338,16 @@ UTC am 2026-05-09.
 
 ### 10.7 Nächste mögliche Themen
 
+- **Heartbeat-Comment-Timeout** debuggen. Symptom: Agent macht den Sync
+  erfolgreich (Skript loggt `done. unchanged=132`), versucht dann
+  `curl -X POST /api/issues/.../comments` und kriegt curl exit 28
+  (Timeout). Localhost-API antwortet aus der Heartbeat-Sandbox auf
+  diesem Endpoint nicht in akzeptabler Zeit. Andere Endpoints der
+  selben API gehen aber durch. Verdacht: spezifisches Problem mit dem
+  Comment-Schema oder mit Inhalt der DB-Schreiboperation. Reproduzieren:
+  manuelles `curl -X POST /api/issues/<id>/comments` aus dem
+  Heartbeat-Worker laufen lassen. Workaround bis dahin: Routine-
+  Run-Issue manuell auf `done` patchen (siehe § 10.6).
 - **Cleanup-Routine** für die 34 cancelled Karteileichen (löschen über
   DB direkt, weil API es ablehnt).
 - **Mail-Thread-Anreicherung** doch noch fixen (`lib/conversation.ts`).
