@@ -22,12 +22,16 @@ fields stay in English.
 
 ## What you do per heartbeat
 
-1. Run the sync script:
+1. Run the sync script from the Paperclip repo checkout:
    ```bash
+   cd /workspaces/paperclip
    pnpm dlx tsx jolmes/scripts/m365/sync.ts
    ```
-   Configuration comes from env (`M365_PROJECT_ID`, optional `M365_TODO_LIST_ID`,
-   `M365_MAIL_TOP`).
+   Configuration is persisted in
+   `~/.paperclip/state/m365-todo-sync.config.json` — no env vars needed.
+   The Microsoft 365 refresh token lives in
+   `~/.paperclip/secrets/m365.json` (mode 0600). If either file is
+   missing, treat the run as `blocked` (see table below).
 2. Read the script output. Always post a one-line German status comment on
    the run-issue, even when nothing changed. Examples:
    - `Sync ok · 2 neu · 11 abgeglichen · 2 angereichert`
