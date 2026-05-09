@@ -338,16 +338,18 @@ UTC am 2026-05-09.
 
 ### 10.7 Nächste mögliche Themen
 
-- **Heartbeat-Comment-Timeout** debuggen. Symptom: Agent macht den Sync
-  erfolgreich (Skript loggt `done. unchanged=132`), versucht dann
-  `curl -X POST /api/issues/.../comments` und kriegt curl exit 28
-  (Timeout). Localhost-API antwortet aus der Heartbeat-Sandbox auf
-  diesem Endpoint nicht in akzeptabler Zeit. Andere Endpoints der
-  selben API gehen aber durch. Verdacht: spezifisches Problem mit dem
-  Comment-Schema oder mit Inhalt der DB-Schreiboperation. Reproduzieren:
-  manuelles `curl -X POST /api/issues/<id>/comments` aus dem
-  Heartbeat-Worker laufen lassen. Workaround bis dahin: Routine-
-  Run-Issue manuell auf `done` patchen (siehe § 10.6).
+- **Heartbeat-Comment-Timeout umgangen** (2026-05-09): Statt den Agent
+  per Bash-`curl` einen Status-Comment + Status-Patch auf das Run-Issue
+  posten zu lassen, erledigt das jetzt `sync.ts` selbst (`finalizeRunIssue()`).
+  Das Skript nutzt `PAPERCLIP_ISSUE_ID`/`PAPERCLIP_ISSUE_TITLE` aus dem
+  Heartbeat-Env, postet einen einzeiligen Counts-Comment und patcht das
+  Run-Issue auf `done`. Plus: alle Paperclip-API-Calls haben jetzt einen
+  Timeout (`PAPERCLIP_API_TIMEOUT_MS`, default 15s) — kein lautloses Hängen
+  mehr. Agent-Prompt entsprechend abgespeckt (kein Doppel-Comment).
+  Die eigentliche Server-Ursache (warum POST `/comments` aus dem
+  Heartbeat-Bash hängt, andere Endpoints aber nicht) ist nicht geklärt —
+  wer Lust hat: in `server/src/routes/issues.ts:4102` rein, Verdacht auf
+  `issueReferencesSvc.syncComment` oder `expireRequestConfirmationsSupersededByComment`.
 - **Cleanup-Routine** für die 34 cancelled Karteileichen (löschen über
   DB direkt, weil API es ablehnt).
 - **Mail-Thread-Anreicherung** doch noch fixen (`lib/conversation.ts`).

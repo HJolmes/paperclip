@@ -16,6 +16,8 @@ export const companyId = (): string => {
 
 export const agentId = (): string | null => process.env.PAPERCLIP_AGENT_ID ?? null;
 
+const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.PAPERCLIP_API_TIMEOUT_MS ?? "", 10) || 15_000;
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const key = apiKey();
@@ -23,7 +25,19 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const rid = runId();
   if (rid) headers.set("X-Paperclip-Run-Id", rid);
-  const res = await fetch(`${apiUrl()}${path}`, { ...init, headers });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DEFAULT_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl()}${path}`, { ...init, headers, signal: ctrl.signal });
+  } catch (err) {
+    if ((err as { name?: string }).name === "AbortError") {
+      throw new Error(`Paperclip ${init.method ?? "GET"} ${path} timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Paperclip ${init.method ?? "GET"} ${path} failed (${res.status}): ${text}`);
