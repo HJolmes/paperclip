@@ -202,6 +202,7 @@ async function reconcileExisting(
   }
   entry.lastTodoStatus = task.status;
   entry.lastSyncedAt = new Date().toISOString();
+  return "reconciled";
 }
 
 async function markTodoCompleted(listId: string, taskId: string): Promise<void> {
