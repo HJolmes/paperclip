@@ -19,6 +19,7 @@
  * Once a task is mapped, status updates flow both ways.
  */
 import { graph, graphList, pathId } from "./lib/graph.js";
+import { renderThread, summariseThread } from "./lib/conversation.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
 import {
   importanceToPriority,
@@ -206,16 +207,44 @@ async function markTodoCompleted(listId: string, taskId: string): Promise<void> 
   });
 }
 
+function findOutlookMessageId(task: TodoTask): string | null {
+  for (const r of task.linkedResources ?? []) {
+    if (
+      r.applicationName?.toLowerCase().includes("outlook") &&
+      typeof r.externalId === "string" &&
+      r.externalId.length > 0
+    ) {
+      return r.externalId;
+    }
+  }
+  return null;
+}
+
 async function enrichWithMailContext(
   task: TodoTask,
   entry: SyncMappingEntry,
   top: number,
 ): Promise<void> {
+  const sections: string[] = [];
+
+  // Try to load full conversation thread for the linked Outlook message.
+  const messageId = findOutlookMessageId(task);
+  if (messageId) {
+    const thread = await summariseThread(messageId).catch(() => null);
+    if (thread) sections.push(renderThread(thread));
+  }
+
+  // Fallback / supplement: free-text search over the inbox.
   const linkedHas = task.linkedResources && task.linkedResources.length > 0;
-  const mails = await searchMails(task.title, top);
-  if (!linkedHas && mails.length === 0) return;
-  const body = renderMailContext(mails, task.linkedResources);
-  await addComment(entry.issueId, body);
+  if (!messageId || !sections.length) {
+    const mails = await searchMails(task.title, top);
+    if (linkedHas || mails.length > 0) {
+      sections.push(renderMailContext(mails, task.linkedResources));
+    }
+  }
+
+  if (sections.length === 0) return;
+  await addComment(entry.issueId, sections.join("\n\n---\n\n"));
   entry.enrichedAt = new Date().toISOString();
 }
 
