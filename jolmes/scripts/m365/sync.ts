@@ -207,17 +207,14 @@ async function markTodoCompleted(listId: string, taskId: string): Promise<void> 
   });
 }
 
-function findOutlookMessageId(task: TodoTask): string | null {
+function candidateMessageIds(task: TodoTask): string[] {
+  const out: string[] = [];
   for (const r of task.linkedResources ?? []) {
-    if (
-      r.applicationName?.toLowerCase().includes("outlook") &&
-      typeof r.externalId === "string" &&
-      r.externalId.length > 0
-    ) {
-      return r.externalId;
+    if (typeof r.externalId === "string" && r.externalId.length > 0) {
+      out.push(r.externalId);
     }
   }
-  return null;
+  return out;
 }
 
 async function enrichWithMailContext(
@@ -227,16 +224,22 @@ async function enrichWithMailContext(
 ): Promise<void> {
   const sections: string[] = [];
 
-  // Try to load full conversation thread for the linked Outlook message.
-  const messageId = findOutlookMessageId(task);
-  if (messageId) {
-    const thread = await summariseThread(messageId).catch(() => null);
-    if (thread) sections.push(renderThread(thread));
+  // Try every linkedResource externalId; first one that resolves to an
+  // Outlook message wins. Microsoft does not set applicationName reliably,
+  // so we don't filter on it.
+  let threadFound = false;
+  for (const candidate of candidateMessageIds(task)) {
+    const thread = await summariseThread(candidate).catch(() => null);
+    if (thread) {
+      sections.push(renderThread(thread));
+      threadFound = true;
+      break;
+    }
   }
 
-  // Fallback / supplement: free-text search over the inbox.
+  // Fallback: free-text search for tasks without a working linked message.
   const linkedHas = task.linkedResources && task.linkedResources.length > 0;
-  if (!messageId || !sections.length) {
+  if (!threadFound) {
     const mails = await searchMails(task.title, top);
     if (linkedHas || mails.length > 0) {
       sections.push(renderMailContext(mails, task.linkedResources));
