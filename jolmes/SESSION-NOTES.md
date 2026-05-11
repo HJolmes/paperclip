@@ -609,10 +609,15 @@ sinnvoll):**
   (war zu oft falsch). `jolmes/scripts/m365/clean-comment-bleed.ts`
   hat retroaktiv 196 Description-Bleeds (Reste vom alten
   Reverse-Sync) bereinigt und 244 Volltext-Noise-Comments per
-  psql gelöscht. Issues im M365-Inbox-Projekt sehen jetzt
-  vernünftig aus: `## Kontext aus Outlook` enthält nur noch den
-  authoritativen `Verknüpft im To-Do`-Block + gegebenenfalls den
-  echten Mail-Thread.
+  psql gelöscht.
+- Folgefehler im Cleanup: das Skript hat den **ganzen** „Kontext
+  aus Outlook"-Comment gelöscht, weil der Volltext-Block und der
+  „Verknüpft im To-Do"-Block im selben Comment standen. Damit
+  fehlten danach auch die `linkedResources`-Verknüpfungen.
+  Behoben mit Variante B (reset.ts --from-project --confirm,
+  130 Issues retire'd, dann frischer Sync) — 128 Issues neu
+  angelegt mit 91 enrichten. Letzter Tagesstand: Timer steht
+  wieder aktiv auf `*:0/15`.
 - Bugfix-Bündel (Commit `e2b73c6`):
   - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
     Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der

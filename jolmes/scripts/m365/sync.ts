@@ -125,8 +125,24 @@ function renderMailContext(linked: TodoTask["linkedResources"]): string {
   return lines.join("\n");
 }
 
+/**
+ * Strip residue from a retired reverse-sync. An earlier iteration of
+ * this tool wrote Paperclip comments back into the Microsoft To-Do
+ * task body under a `--- Paperclip-Kommentare ---` marker. Outlook
+ * persists that, so every fresh sync would otherwise re-import the
+ * stale block (including the long-removed "Top-Treffer (Volltextsuche)"
+ * fulltext-hit rendering). We cut everything from the marker onwards.
+ */
+const REVERSE_SYNC_MARKER = "--- Paperclip-Kommentare ---";
+function stripReverseSyncBleed(body: string): string {
+  const idx = body.indexOf(REVERSE_SYNC_MARKER);
+  if (idx === -1) return body;
+  return body.slice(0, idx).replace(/\s+$/u, "");
+}
+
 function buildInitialDescription(task: TodoTask, list: TodoList): string {
-  const userBody = task.body?.content?.trim() ?? "";
+  const rawBody = task.body?.content?.trim() ?? "";
+  const userBody = stripReverseSyncBleed(rawBody).trim();
   const sourceBlock = `**Quelle:** Microsoft To-Do — Liste «${list.displayName}»`;
   return userBody ? `${sourceBlock}\n\n${userBody}` : sourceBlock;
 }
