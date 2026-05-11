@@ -648,18 +648,36 @@ sinnvoll):**
 ### 12.5 Aufwärm-Prompt für die nächste Session
 
 ```
+Codespace-Session-Start.
+
 Lies jolmes/SESSION-NOTES.md ab Abschnitt 12.
-Letzter Stand: M365-Sync läuft als systemd-Timer produktiv auf der
-Hetzner-VM (alle 15 Min, Null Token-Kosten). A6 (Weekly-Review) und
-A5 (Followup-Watchdog) als Prompt-Dateien + Company-Specs liegen
-im Repo, müssen aber noch in der Paperclip-UI als Agents+Routinen
-verdrahtet werden.
 
-Nächste offene Items aus §12.4: UI-Production-Build (Schritt 12.1.1),
-A6/A5-Wiring in der UI, embedded-pg-Migration ist offenbar schon
-durch (VM nutzt system-postgres 18).
+Letzter Stand (2026-05-11 abends):
+- M365-Sync läuft als systemd-Timer alle 15 Min produktiv
+  auf der Hetzner-VM 23.88.46.202. Null Token-Kosten.
+- Repo-Spitze: Branch claude/add-core-tests-ZGENJ, Commit 6fd5963
+  (sync.ts strippt jetzt den Reverse-Sync-Bleed beim Import).
+- Letzter Live-Sync hat 128 Issues angelegt, die noch den alten
+  Bleed in der Description haben (Issues VOR dem 6fd5963-Fix
+  angelegt). Räumen wir gleich auf.
 
-Sprache Deutsch, knapp.
+Erstes Item heute (VM, eine Anweisung pro Nachricht bitte):
+  cd ~/paperclip && git pull
+  set -a; source ~/.paperclip/state/m365-sync.env; set +a
+  pnpm dlx tsx jolmes/scripts/m365/clean-comment-bleed.ts --confirm
+
+Danach offene Items aus §12.4 (Priorität von oben):
+  1. UI-Production-Build aktivieren (killt den Inkognito-Bug)
+  2. A6 Wochen-Review + A5 Followup-Watchdog in der UI als
+     Routinen verdrahten (Prompts liegen in jolmes/prompts/)
+  3. DB-Backup-Cron (rclone → Hetzner Storage Box)
+
+Konventionen:
+- Antworten Deutsch, knapp.
+- VM = Production (nur git pull, nicht editieren).
+  Codespace = Dev.
+- Bei Setup-Schritten: eine Anweisung pro Nachricht,
+  Henning bestätigt jeweils, bevor's weitergeht.
 ```
 
 ### 12.6 Setup-Lessons aus dem M365-Sync-Live-Gang (2026-05-11)
