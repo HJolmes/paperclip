@@ -3,10 +3,12 @@
 > Lies das in einer neuen Claude-Session mit:
 > *„Lies `jolmes/SESSION-NOTES.md` und setze fort."*
 
-Letzter Stand: **2026-05-08** · Branch `master` · Codespace lief unter Subscription-Modus.
+Letzter Stand: **2026-05-11** · Branch `master` · **Paperclip läuft auf Hetzner-VM**
+(`http://23.88.46.202`), Codespace-Setup parallel weiterhin lauffähig.
 
-> Aktiver Feature-Branch: `claude/paperclip-email-todos-WJN1k` —
-> Setup für Use Case **„To-Dos mit Mail-Kontext"**. Siehe Abschnitt 9.
+> Neue Hosting-Realität siehe **Abschnitt 11** unten. Alles aus
+> Abschnitten 1–10 bleibt inhaltlich gültig, bezieht sich aber auf die
+> Codespace-Instanz.
 
 ---
 
@@ -361,5 +363,149 @@ UTC am 2026-05-09.
 Lies jolmes/SESSION-NOTES.md, ab Abschnitt 10 (Live-Stand M365 To-Do Sync).
 Routine läuft alle 15 Min, Henning Personal Ops ist auf master.
 Nächstes Thema: <wähle eins aus § 10.7>.
+Sprache Deutsch, knapp.
+```
+
+---
+
+## 11. Hetzner-Deployment live (2026-05-11)
+
+Paperclip läuft jetzt auf einer eigenen Hetzner-VM. Codespace bleibt als
+Dev-Werkbank, Hetzner ist die persistente Instanz.
+
+### 11.1 Was steht
+
+- **VM:** Hetzner CX23 (2 vCPU / 4 GB / 40 GB Intel) in Falkenstein,
+  Ubuntu 24.04 LTS, IP **`23.88.46.202`**.
+- **Provisioning:** vollautomatisch via `jolmes/scripts/hetzner-up.sh`
+  (hcloud-CLI auto-installiert) + `jolmes/hetzner/cloud-init.yaml`.
+- **Service:** systemd-Unit `paperclip.service` mit
+  `pnpm dev --bind lan`, User `paperclip`, `WorkingDirectory=~/paperclip`.
+- **Datenbank:** **embedded-postgres** auf Port 54329
+  (`~/.paperclip/instances/default/db`). **Kein** Docker-Postgres mehr,
+  kein externer 5432-Port.
+- **Reverse-Proxy:** Caddy auf Port 80 → `127.0.0.1:3100`. UFW erlaubt
+  nur 22 + 80, 3100 ist dicht. Grund: Jolmes-Firmen-Firewall blockt
+  Port 3100 outbound.
+- **Auth-Modus:** Subscription über Pro/Max-Abo, `claude login` auf der
+  VM einmalig durchlaufen, Token in `/home/paperclip/.claude/`.
+  `deploymentMode=authenticated`, `deploymentExposure=public`,
+  `PAPERCLIP_ALLOWED_HOSTNAMES=23.88.46.202`,
+  `PAPERCLIP_PUBLIC_URL=http://23.88.46.202`.
+- **Owner:** Board-Claim wurde per einmaliger Claim-URL durchgezogen,
+  `henning@jolmes.de`-Account ist Instance-Admin.
+- **Companies in der VM-Instanz:**
+  - `Henning Personal Ops` (Prefix `HEN`, active) — via
+    `paperclipai company import companies/henning-personal-ops` aus dem
+    Repo importiert. **Frische DB**, keine Mappings, keine M365-State.
+  - `_temp` (Prefix `TEM`) — Onboarding-Dummy, nicht löschbar (siehe
+    11.4 cascade-bug).
+  - `tet` — archived, vom ersten Onboarding-Versuch.
+
+### 11.2 Konfigurations-Lehren (alle nötig, alle im cloud-init)
+
+1. **Hetzner-Server-Typen** wurden Mitte 2025 umbenannt: `cx22/32/…` →
+   `cx23/33/…`. Default im `hetzner-up.sh` ist jetzt `cx23`.
+2. **`local_trusted`-Mode erlaubt nicht `HOST=0.0.0.0`** (fail-fast aus
+   `packages/shared/src/network-bind.ts:46`). Für externen Zugriff muss
+   `PAPERCLIP_DEPLOYMENT_MODE=authenticated` sein.
+3. **`scripts/dev-runner.ts:176-179`** löscht ohne `--bind`-Flag stumm
+   die deployment-Env-Vars und fällt auf `local_trusted` zurück. Daher
+   muss systemd `pnpm dev --bind lan` rufen, nicht nur `pnpm dev`.
+4. **`PAPERCLIP_ALLOWED_HOSTNAMES`** muss die VM-IP enthalten, sonst
+   blockt die `private-hostname-guard`-Middleware fremde `Host`-Header.
+5. **embedded-postgres SHM-Cleanup:** Nach hartem Service-Stop hängen
+   manchmal `/dev/shm/PostgreSQL.*`-Segments, der nächste Start
+   schlägt mit „could not open shared memory segment" fehl. Fix:
+   `sudo rm -f /dev/shm/PostgreSQL.*` vor Service-Start.
+6. **Firmen-Firewall** der Jolmes blockt Port 3100 outbound — daher
+   Caddy davor auf Port 80. UFW schließt 3100 dann komplett.
+7. **`xdg-open` fehlt** auf headless Ubuntu, `paperclipai auth login`
+   crasht beim browser-spawn. Cloud-init legt `ln -s /bin/true
+   /usr/local/bin/xdg-open` an.
+8. **Vite-Dev-HMR-WebSocket** wird mit `bindHost=0.0.0.0` als
+   `ws://0.0.0.0:13100/` an den Browser geliefert, scheitert immer.
+   Browser zeigt dann schwarzen Bildschirm. Workaround: **Chrome
+   Inkognito**. Saubere Lösung: UI-Production-Build (Phase 2).
+9. **Edge blockt nackte IPs** via SmartScreen — Chrome statt Edge.
+10. **Corepack** zieht `pnpm@11` außerhalb des Repo-Verzeichnisses (das
+    braucht Node 22). Daher CLI-Befehle immer aus `~/paperclip` rufen,
+    dort gilt der `packageManager`-Pin auf `pnpm@9.15.4`.
+
+### 11.3 Repo-Stand für Hetzner
+
+| Datei                                  | Zweck                                              |
+| -------------------------------------- | -------------------------------------------------- |
+| `jolmes/scripts/hetzner-up.sh`         | One-Shot-Provisioning via hcloud-CLI (idempotent)  |
+| `jolmes/hetzner/cloud-init.yaml`       | First-Boot: Node 20, pnpm, Claude-CLI, Caddy, .env, systemd, UFW, xdg-open-Stub |
+| `jolmes/docs/HETZNER-SETUP.md`         | Anleitung (Token-Klicks → ein Befehl → claude login) |
+| `jolmes/SETUP.md` §9                   | Phase-2-Hosting verweist auf Hetzner               |
+
+`jolmes/docs/PHASE-2-AZURE.md` bleibt als historisches Dokument liegen,
+ist nicht mehr aktiv.
+
+### 11.4 Bekannte Bugs (Upstream, ungefixt)
+
+- **Company-DELETE 500** mit FK-Constraint
+  `cost_events_heartbeat_run_id_heartbeat_runs_id_fk`. Cascade fehlt.
+  Workaround: Company in der UI archivieren statt löschen.
+- **Vite-HMR-Bind** für nicht-loopback-Bind unbrauchbar (siehe 11.2 §8).
+  Workaround Inkognito, Fix mit Production-Build.
+
+### 11.5 Was offen ist – konkret
+
+**Direkt (vor produktiver Nutzung der VM):**
+
+1. **M365-State von Codespace zur VM portieren.** Die alte
+   Codespace-Instanz hatte 132 Mappings + Refresh-Token. Auf der VM ist
+   noch nichts. Optionen:
+   - (a) `rsync ~/.paperclip/secrets/m365.json` + `state/m365-todo-sync.*`
+     vom Codespace zur VM. **Aber:** Company-/Project-/Agent-IDs sind
+     in der neuen Instanz andere → Mapping-State muss durch
+     `jolmes/scripts/m365/configure.ts` aktualisiert oder per `reset.ts`
+     + voller Re-Sync gemacht werden.
+   - (b) Komplett neu auf der VM: `pnpm dlx tsx jolmes/scripts/m365/bootstrap.ts`,
+     dann sync. Doppelt zu den Codespace-Issues.
+   - (c) Codespace stilllegen, dann VM neu syncen.
+   Henning entscheidet, welche Variante.
+2. **M365-Triage env inputs** in der UI setzen (`M365_PROJECT_ID`
+   required, andere optional). Project-ID aus
+   <http://23.88.46.202/HEN/projects>.
+3. **Routine `M365 To-Do Sync`** in der UI neu anlegen (Cron
+   `*/15 * * * *` Europe/Berlin), die alte ist nur in der Codespace-DB.
+
+**Phase 2 (Hardening, ~1 Stunde Block):**
+
+1. **UI Production-Build**: `pnpm --filter @paperclipai/ui build`,
+   systemd-Unit auf statisches Asset-Serving, `PAPERCLIP_UI_DEV_MIDDLEWARE`
+   ungesetzt. Killt die Inkognito-Pflicht und HMR-Probleme dauerhaft.
+2. **Domain + TLS:** `paperclip.jolmes.de` als A-Record auf
+   `23.88.46.202`, Caddyfile auf `paperclip.jolmes.de { reverse_proxy
+   127.0.0.1:3100 }` umstellen, Caddy holt automatisch Let's-Encrypt-
+   Cert. Dann ALLOWED_HOSTNAMES + PUBLIC_URL anpassen.
+3. **M365-SSO:** `socialProviders.microsoft` in
+   `server/src/auth/better-auth.ts` ergänzen (better-auth unterstützt
+   Microsoft out-of-the-box). Braucht Entra-App-Registration mit
+   Redirect-URI `https://paperclip.jolmes.de/api/auth/callback/microsoft`.
+   Erst nach Schritt 2.
+4. **DB-Backups:** Cron `pnpm db:backup` + `rclone push` zur Hetzner
+   Storage Box. Pfad: `/home/paperclip/.paperclip/instances/default/data/backups`.
+5. **Codespace-Daten retten:** vor Stilllegung die Sandbox-Outputs aus
+   `~/.paperclip/instances/.../projects/.../` ins Repo / nach Hetzner kopieren.
+6. **Upstream-PR** für den `cost_events`-Cascade-Bug bei
+   `paperclipai/paperclip` aufmachen (siehe 11.4).
+
+### 11.6 Aufwärm-Prompt für die nächste Session
+
+```
+Lies jolmes/SESSION-NOTES.md ab Abschnitt 11.
+Paperclip läuft auf der Hetzner-VM http://23.88.46.202 (Owner-Login
+henning@jolmes.de), Company "Henning Personal Ops" (Prefix HEN) ist
+importiert aber leer. Codespace-Setup ist parallel noch lauffähig.
+
+Nächstes Thema: <wähle eins aus § 11.5>.
+Browser-Tipp: bei "schwarzer Seite" Chrome-Inkognito nutzen
+(Vite-Dev-Cache, wird mit UI-Production-Build behoben).
+
 Sprache Deutsch, knapp.
 ```

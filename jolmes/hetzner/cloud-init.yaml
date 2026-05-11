@@ -20,7 +20,7 @@ users:
   - name: paperclip
     gecos: Paperclip Service User
     shell: /bin/bash
-    groups: [sudo, docker]
+    groups: [sudo]
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
       - __SSH_PUBKEY__
@@ -40,7 +40,9 @@ packages:
   - openssl
   - build-essential
   - unattended-upgrades
-  - postgresql-common
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
 
 write_files:
   - path: /etc/sysctl.d/99-paperclip.conf
@@ -63,12 +65,24 @@ write_files:
       Environment=HOME=/home/paperclip
       Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
       Environment=SERVE_UI=true
-      ExecStart=/usr/bin/env pnpm dev
+      # --bind lan = bind 0.0.0.0 + dev-runner forciert deployment_mode=authenticated.
+      # Ohne --bind löscht dev-runner.ts unsere .env-Werte und fällt zurück auf
+      # local_trusted, was an HOST=0.0.0.0 fail-fast scheitert.
+      ExecStart=/usr/bin/env pnpm dev --bind lan
       Restart=on-failure
       RestartSec=5s
 
       [Install]
       WantedBy=multi-user.target
+
+  - path: /etc/caddy/Caddyfile
+    content: |
+      # Caddy als Reverse-Proxy vor Paperclip. Port 80, weil viele Firmen-
+      # Firewalls 3100 outbound blocken. TLS später, wenn Domain dran ist.
+      :80 {
+        encode gzip
+        reverse_proxy 127.0.0.1:3100
+      }
 
   - path: /usr/local/sbin/paperclip-bootstrap
     permissions: '0755'
@@ -84,30 +98,34 @@ write_files:
         exit 0
       fi
 
-      # --- 1) Docker Engine (offizielles apt-Repo) ---
-      install -m 0755 -d /etc/apt/keyrings
-      curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-      chmod a+r /etc/apt/keyrings/docker.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-        > /etc/apt/sources.list.d/docker.list
-      apt-get update -y
-      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-      usermod -aG docker paperclip || true
-      systemctl enable --now docker
-
-      # --- 2) Node.js 20 LTS (NodeSource) ---
+      # --- 1) Node.js 20 LTS (NodeSource) ---
       if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q '^v20'; then
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get install -y nodejs
       fi
 
-      # --- 3) pnpm via corepack + Claude Code CLI ---
+      # --- 2) pnpm via corepack + Claude Code CLI ---
       corepack enable
       corepack prepare pnpm@9.15.4 --activate
       npm install -g @anthropic-ai/claude-code
 
-      # --- 4) Repo klonen + bootstrap.sh laufen lassen (als paperclip-User) ---
+      # --- 3) headless 'xdg-open' Stub, damit CLI-Auth-Login auf der VM
+      #        nicht abstürzt (versucht sonst einen lokalen Browser zu öffnen)
+      if [ ! -e /usr/local/bin/xdg-open ]; then
+        ln -s /bin/true /usr/local/bin/xdg-open
+      fi
+
+      # --- 4) Caddy installieren (Reverse-Proxy auf Port 80) ---
+      if ! command -v caddy >/dev/null 2>&1; then
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+          | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+          > /etc/apt/sources.list.d/caddy-stable.list
+        apt-get update -y
+        apt-get install -y caddy
+      fi
+
+      # --- 5) Repo klonen + bootstrap.sh laufen lassen (als paperclip-User) ---
       sudo -u paperclip -H bash -lc '
         set -euo pipefail
         cd /home/paperclip
@@ -118,31 +136,58 @@ write_files:
         ./jolmes/bootstrap.sh
       '
 
-      # --- 5) systemd-Service aktivieren ---
+      # --- 6) Server-spezifische .env-Settings (Production-tauglich) ---
+      #        Dynamisch die öffentliche IPv4 ermitteln und einsetzen.
+      PUBIP="$(curl -fsSL --max-time 5 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)"
+      if [ -z "$PUBIP" ]; then
+        # Fallback: erste nicht-private IPv4
+        PUBIP="$(hostname -I | tr ' ' '\n' | grep -E '^([1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.' | grep -vE '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.)' | head -n1)"
+      fi
+      ENVFILE=/home/paperclip/paperclip/.env
+      sudo -u paperclip -H bash -lc "
+        set -euo pipefail
+        cd ~/paperclip
+        upsert() {
+          local k=\"\$1\" v=\"\$2\"
+          if grep -q \"^\${k}=\" .env; then
+            sed -i \"s|^\${k}=.*|\${k}=\${v}|\" .env
+          else
+            echo \"\${k}=\${v}\" >> .env
+          fi
+        }
+        upsert HOST 0.0.0.0
+        upsert SERVE_UI true
+        upsert PAPERCLIP_ALLOWED_HOSTNAMES '$PUBIP'
+        upsert PAPERCLIP_PUBLIC_URL 'http://$PUBIP'
+      "
+
+      # --- 7) UFW + Services ---
+      ufw default deny incoming
+      ufw default allow outgoing
+      ufw allow OpenSSH
+      ufw allow 80/tcp
+      ufw --force enable
+
       systemctl daemon-reload
+      systemctl enable --now caddy
       systemctl enable --now paperclip.service
 
       touch "$MARK"
       echo "paperclip-bootstrap: done"
 
 runcmd:
-  # Firewall: SSH + Paperclip-Port (3100). HTTPS später, wenn Domain dran ist.
-  - ufw default deny incoming
-  - ufw default allow outgoing
-  - ufw allow OpenSSH
-  - ufw allow 3100/tcp
-  - ufw --force enable
-
   # Unattended Upgrades aktivieren
   - dpkg-reconfigure -f noninteractive unattended-upgrades
 
-  # Bootstrap-Skript starten, Logs ins cloud-init-output.log spiegeln
+  # Bootstrap-Skript starten, Logs ins paperclip-bootstrap.log spiegeln
   - /usr/local/sbin/paperclip-bootstrap 2>&1 | tee -a /var/log/paperclip-bootstrap.log
 
 final_message: |
   Paperclip cloud-init done in $UPTIME s.
-  Nächster Schritt manuell:
+  Nächster Schritt manuell (einmalig auf der VM):
     ssh paperclip@<server-ip>
-    claude login        # einmalig, Auth-Code aus Browser einkleben
+    claude login        # Auth-Code aus Browser einkleben
     sudo systemctl restart paperclip
-  UI dann auf http://<server-ip>:3100
+  UI dann auf http://<server-ip>  (Port 80, kein :3100).
+  Browser-Tipp: bei "schwarzer Seite" Inkognito-Fenster nutzen
+  (Vite-Dev-Cache-Eigenheit, wird mit UI Production-Build in Phase 2 obsolet).
