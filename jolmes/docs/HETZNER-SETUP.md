@@ -5,11 +5,16 @@
 > Den Rest macht cloud-init.
 
 **Stack:**
-Ubuntu 24.04 LTS · CX22 (2 vCPU / 4 GB / 40 GB SSD) · Docker für
+Ubuntu 24.04 LTS · CX23 (2 vCPU / 4 GB / 40 GB SSD, Intel) · Docker für
 Postgres · Paperclip nativ als systemd-Service · Claude-Code-CLI im
 Subscription-Modus · UFW-Firewall.
 
-**Kosten:** ~4,15 €/Monat (CX22 inkl. Traffic).
+**Kosten:** ~4,15 €/Monat (CX23 inkl. Traffic).
+
+> Hetzner hat die Intel-Generation Mitte 2025 von CX22/CX32/… auf
+> CX23/CX33/… umbenannt. Falls dein Account noch alte Typen anzeigt,
+> liste sie mit `hcloud server-type list` auf und setze
+> `export PAPERCLIP_VM_TYPE=<name>` vor dem Skript-Aufruf.
 
 ---
 
@@ -47,7 +52,7 @@ Das Skript:
 
 1. installiert bei Bedarf die `hcloud` CLI,
 2. lädt deinen SSH-Pubkey zu Hetzner hoch (Name: `paperclip-admin`),
-3. legt einen Server `paperclip-prod` (CX22, fsn1, Ubuntu 24.04) an,
+3. legt einen Server `paperclip-prod` (CX23, fsn1, Ubuntu 24.04) an,
 4. injiziert `jolmes/hetzner/cloud-init.yaml` als user-data.
 
 **Idempotent:** zweiter Aufruf zeigt nur die IP an, legt nichts neu an.
@@ -96,7 +101,7 @@ Im Browser: <http://server-ip:3100/>
 
 ```
 ┌──────────────────────────────────────────┐
-│ Hetzner CX22 · Ubuntu 24.04 · Falkenstein│
+│ Hetzner CX23 · Ubuntu 24.04 · Falkenstein│
 │                                          │
 │  ┌─────────────────────────────────┐     │
 │  │ systemd: paperclip.service      │     │
@@ -175,7 +180,7 @@ Datei-Perms, Azure Blob → Hetzner Storage Box).
 | -------------------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
 | `hetzner-up.sh`: `HCLOUD_TOKEN` fehlt  | nicht exportiert                       | `export HCLOUD_TOKEN=...`                                            |
 | `permission denied (publickey)` per SSH| Pubkey beim Server-Anlegen verpasst    | `hcloud server delete paperclip-prod && ./jolmes/scripts/hetzner-up.sh` |
-| `paperclip-bootstrap.log` bricht ab    | meist `pnpm install` OOM auf CX22      | swap aktivieren oder auf CX32 hochziehen (`hcloud server change-type`)|
+| `paperclip-bootstrap.log` bricht ab    | meist `pnpm install` OOM auf CX23      | swap aktivieren oder auf CX33 hochziehen (`hcloud server change-type`)|
 | `claude: command not found`            | cloud-init noch nicht fertig           | `tail -f /var/log/paperclip-bootstrap.log` und warten              |
 | UI antwortet nicht auf `:3100`         | systemd-Service down                   | `sudo systemctl status paperclip`, dann `journalctl -u paperclip`   |
 | DB-Container down                      | Docker noch nicht hochgekommen         | `docker ps`, `docker compose -f ~/paperclip/docker/docker-compose.yml up -d db` |

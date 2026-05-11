@@ -23,7 +23,7 @@
 
 2. Auf neuem Branch `claude/paperclip-hetzner-setup-brSvc` das
    Hetzner-Provisioning angelegt (Henning will weg vom Codespace-Only-Setup):
-   - `jolmes/scripts/hetzner-up.sh` – CX22 in fsn1 via hcloud-CLI
+   - `jolmes/scripts/hetzner-up.sh` – CX23 in fsn1 via hcloud-CLI
    - `jolmes/hetzner/cloud-init.yaml` – First-Boot (Docker, Node 20,
      pnpm, claude CLI, Postgres-Container, systemd-Service, UFW)
    - `jolmes/docs/HETZNER-SETUP.md` – Anleitung

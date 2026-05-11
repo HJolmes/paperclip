@@ -9,7 +9,7 @@
 #
 # Optional konfigurierbar per env:
 #   PAPERCLIP_VM_NAME       Default: paperclip-prod
-#   PAPERCLIP_VM_TYPE       Default: cx22         (4 €/Mo, FSN)
+#   PAPERCLIP_VM_TYPE       Default: cx23         (4 €/Mo, FSN, Intel)
 #   PAPERCLIP_VM_LOCATION   Default: fsn1         (Falkenstein, DE)
 #   PAPERCLIP_VM_IMAGE      Default: ubuntu-24.04
 #   PAPERCLIP_SSH_KEY_NAME  Default: paperclip-admin
@@ -25,7 +25,7 @@ set -euo pipefail
 # --- 0) Variablen + Plausi-Checks --------------------------------------------
 
 VM_NAME="${PAPERCLIP_VM_NAME:-paperclip-prod}"
-VM_TYPE="${PAPERCLIP_VM_TYPE:-cx22}"
+VM_TYPE="${PAPERCLIP_VM_TYPE:-cx23}"
 VM_LOCATION="${PAPERCLIP_VM_LOCATION:-fsn1}"
 VM_IMAGE="${PAPERCLIP_VM_IMAGE:-ubuntu-24.04}"
 SSH_KEY_NAME="${PAPERCLIP_SSH_KEY_NAME:-paperclip-admin}"
