@@ -604,6 +604,15 @@ sinnvoll):**
 - M365-Sync läuft seit 2026-05-11 23:18 produktiv auf der VM,
   alle 15 Min (`*:0/15`, Europe/Berlin), **ohne Token-Kosten**
   (siehe §12.6 unten zu Setup-Lessons).
+- Sync-Output gesäubert (gleicher Abend): die Graph-Volltextsuche-
+  Trefferliste wird nicht mehr als Issue-Comment dazugeschrieben
+  (war zu oft falsch). `jolmes/scripts/m365/clean-comment-bleed.ts`
+  hat retroaktiv 196 Description-Bleeds (Reste vom alten
+  Reverse-Sync) bereinigt und 244 Volltext-Noise-Comments per
+  psql gelöscht. Issues im M365-Inbox-Projekt sehen jetzt
+  vernünftig aus: `## Kontext aus Outlook` enthält nur noch den
+  authoritativen `Verknüpft im To-Do`-Block + gegebenenfalls den
+  echten Mail-Thread.
 - Bugfix-Bündel (Commit `e2b73c6`):
   - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
     Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der
