@@ -595,6 +595,12 @@ sinnvoll):**
   `jolmes/prompts/followup-watchdog.md`,
   beide AGENTS.md unter
   `companies/henning-personal-ops/agents/{weekly-review,followup-watchdog}/`.
+- M365-Sync ohne Bot — systemd-Timer als Quelle der Wahrheit:
+  `jolmes/hetzner/units/m365-sync.{service,timer}` als Unit-Files,
+  `jolmes/scripts/install-m365-timer.sh` als idempotentes Install-Skript
+  für die bestehende VM, `jolmes/hetzner/cloud-init.yaml` ruft dasselbe
+  Skript bei Neu-Provision. `ConditionPathExists` auf das M365-Secret
+  hält den Timer inert, bis `bootstrap.ts` auf der VM gelaufen ist.
 - Bugfix-Bündel (Commit `e2b73c6`):
   - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
     Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der
@@ -614,7 +620,7 @@ sinnvoll):**
 
 | Prio | Thema | Notiz |
 |------|-------|-------|
-| **hoch** | **M365-Sync-Trigger klären.** Henning hat den `M365-Triage`-Bot in der UI archiviert. Im Repo gibt es keinen systemd-Timer für `sync.ts`. Falls aktuell **gar kein** Sync läuft, wirkt der Bugfix erst nach Re-Verdrahtung. Optionen: (a) Routine wieder aktivieren, (b) systemd-Timer in `jolmes/hetzner/cloud-init.yaml` ergänzen, (c) Codespace-Cron weiterlaufen lassen. | Antwort von Henning ausstehend |
+| **hoch** | **M365-Sync-Timer auf die laufende VM bringen.** Entscheidung 2026-05-11: kein Bot, sondern systemd-Timer (Null Token, robuster). Unit-Files liegen in `jolmes/hetzner/units/m365-sync.{service,timer}`, Cloud-init bringt sie bei Neu-Provision mit, die bestehende VM bekommt sie via `ssh paperclip@23.88.46.202 'cd ~/paperclip && git pull && ./jolmes/scripts/install-m365-timer.sh'`. Vorher noch `pnpm dlx tsx jolmes/scripts/m365/bootstrap.ts` auf der VM laufen lassen — sonst bleibt der Timer wegen `ConditionPathExists` inert. | Henning-Action |
 | hoch | UI-Production-Build aktivieren (12.1 Schritt 1) | `pnpm --filter @paperclipai/ui build`, Service umstellen |
 | hoch | A6 + A5 in der UI verdrahten: Agent anlegen, System-Prompt aus `jolmes/prompts/*.md` reinkopieren, Modell `claude-sonnet-4-6`, `max_output_tokens=600`, Cron `0 16 * * 5` bzw. `0 11 * * 1-5` (`Europe/Berlin`), Test-Lauf | UI-Arbeit, kann Claude nicht von hier |
 | mittel | embedded-pg → system-postgres migrieren (12.1 Schritt 2) | Service-Stop nötig |

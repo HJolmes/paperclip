@@ -172,6 +172,14 @@ write_files:
       systemctl enable --now caddy
       systemctl enable --now paperclip.service
 
+      # --- 8) M365-Sync systemd-Timer (statt teurer Paperclip-Bot-Routine)
+      #        Die Units leben im Repo (jolmes/hetzner/units/), das Skript
+      #        kopiert sie nach /etc/systemd/system und enabled den Timer.
+      #        Service hat ConditionPathExists auf das M365-Secret — bleibt
+      #        also inert, bis Henning auf der VM einmal `bootstrap.ts`
+      #        ausgefuehrt hat.
+      bash /home/paperclip/paperclip/jolmes/scripts/install-m365-timer.sh
+
       touch "$MARK"
       echo "paperclip-bootstrap: done"
 

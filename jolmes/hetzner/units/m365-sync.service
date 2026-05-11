@@ -1,0 +1,29 @@
+[Unit]
+Description=Paperclip M365 To-Do sync (Graph -> Paperclip)
+After=network-online.target paperclip.service
+Wants=network-online.target
+# Don't start the sync until Henning has run bootstrap.ts on the VM
+# (that's what creates the M365 refresh-token secret). Once present,
+# the sync will start running on schedule with no further action.
+ConditionPathExists=/home/paperclip/.paperclip/secrets/m365.json
+
+[Service]
+Type=oneshot
+User=paperclip
+WorkingDirectory=/home/paperclip/paperclip
+Environment=HOME=/home/paperclip
+Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
+# pnpm dlx tsx resolves tsx from the pnpm store cache after the first
+# run. We intentionally do not pin to cli/node_modules/tsx because that
+# path moves with workspace-link changes.
+ExecStart=/usr/bin/env pnpm dlx tsx jolmes/scripts/m365/sync.ts
+# A single run shouldn't take more than a couple of minutes even on
+# a 132-task backlog; cap at 10 to make sure a stuck Graph call doesn't
+# wedge the timer.
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=5
+
+[Install]
+WantedBy=multi-user.target
