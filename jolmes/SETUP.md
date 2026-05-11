@@ -187,12 +187,19 @@ Branching-Regel für Claude-Code-Sessions: alles auf
 
 ## 9. Was ist NICHT Teil dieser Phase
 
-- Azure-Deployment (Container Apps / Postgres Flexible Server)
 - Produktive Mail-Klassifikation (M365-Graph-Anbindung)
 - SSO via Entra ID
 - Backup/Restore-Strategie für `~/.paperclip`
 
-→ Skizze in [`jolmes/docs/PHASE-2-AZURE.md`](./docs/PHASE-2-AZURE.md).
+### Hosting-Optionen (Phase 2)
+
+- **Hetzner Cloud (aktuell präferiert):**
+  [`jolmes/docs/HETZNER-SETUP.md`](./docs/HETZNER-SETUP.md) – einzelne
+  VM in Falkenstein, cloud-init macht alles. Skript:
+  [`jolmes/scripts/hetzner-up.sh`](./scripts/hetzner-up.sh).
+- **Azure (alte Skizze):**
+  [`jolmes/docs/PHASE-2-AZURE.md`](./docs/PHASE-2-AZURE.md) – Container
+  Apps + Postgres Flex. Aktuell nicht aktiv verfolgt.
 
 ---
 

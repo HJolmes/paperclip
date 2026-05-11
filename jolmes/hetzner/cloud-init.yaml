@@ -1,0 +1,149 @@
+#cloud-config
+# ---------------------------------------------------------------------
+# Paperclip auf Hetzner Cloud – cloud-init Bootstrap
+# ---------------------------------------------------------------------
+# Wird beim ersten Boot der VM ausgeführt. Idempotent über die Marker-
+# Datei /var/lib/paperclip-bootstrap.done. Logs unter /var/log/cloud-init-output.log.
+#
+# Erwartet Substitution dieser Platzhalter durch jolmes/scripts/hetzner-up.sh:
+#   __SSH_PUBKEY__        – einzelner SSH-Pubkey für User 'paperclip'
+#   __REPO_URL__          – Git-URL des Forks (default: HJolmes/paperclip)
+#   __REPO_BRANCH__       – Branch zum Auschecken (default: master)
+# ---------------------------------------------------------------------
+
+hostname: paperclip
+manage_etc_hosts: true
+timezone: Europe/Berlin
+locale: de_DE.UTF-8
+
+users:
+  - name: paperclip
+    gecos: Paperclip Service User
+    shell: /bin/bash
+    groups: [sudo, docker]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - __SSH_PUBKEY__
+
+# SSH härten – nur Pubkey, kein Root, kein Passwort
+ssh_pwauth: false
+disable_root: true
+
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - ufw
+  - openssl
+  - build-essential
+  - unattended-upgrades
+  - postgresql-common
+
+write_files:
+  - path: /etc/sysctl.d/99-paperclip.conf
+    content: |
+      vm.swappiness=10
+      net.ipv4.tcp_syncookies=1
+
+  - path: /etc/systemd/system/paperclip.service
+    content: |
+      [Unit]
+      Description=Paperclip (API + UI)
+      After=network-online.target docker.service
+      Wants=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=simple
+      User=paperclip
+      WorkingDirectory=/home/paperclip/paperclip
+      EnvironmentFile=/home/paperclip/paperclip/.env
+      Environment=HOME=/home/paperclip
+      Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
+      ExecStartPre=/usr/bin/docker compose -f /home/paperclip/paperclip/docker/docker-compose.yml up -d db
+      ExecStart=/usr/bin/env pnpm start
+      Restart=on-failure
+      RestartSec=5s
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/sbin/paperclip-bootstrap
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Wird einmal als root vom cloud-init runcmd-Block aufgerufen,
+      # delegiert dann an den Service-User 'paperclip' für alles
+      # Repo-Bezogene.
+      set -euo pipefail
+      MARK=/var/lib/paperclip-bootstrap.done
+      if [ -f "$MARK" ]; then
+        echo "paperclip-bootstrap: already done, skipping"
+        exit 0
+      fi
+
+      # --- 1) Docker Engine (offizielles apt-Repo) ---
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      chmod a+r /etc/apt/keyrings/docker.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        > /etc/apt/sources.list.d/docker.list
+      apt-get update -y
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      usermod -aG docker paperclip || true
+      systemctl enable --now docker
+
+      # --- 2) Node.js 20 LTS (NodeSource) ---
+      if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q '^v20'; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+      fi
+
+      # --- 3) pnpm via corepack + Claude Code CLI ---
+      corepack enable
+      corepack prepare pnpm@9.15.4 --activate
+      npm install -g @anthropic-ai/claude-code
+
+      # --- 4) Repo klonen + bootstrap.sh laufen lassen (als paperclip-User) ---
+      sudo -u paperclip -H bash -lc '
+        set -euo pipefail
+        cd /home/paperclip
+        if [ ! -d paperclip/.git ]; then
+          git clone --branch __REPO_BRANCH__ __REPO_URL__ paperclip
+        fi
+        cd paperclip
+        ./jolmes/bootstrap.sh
+      '
+
+      # --- 5) systemd-Service aktivieren ---
+      systemctl daemon-reload
+      systemctl enable --now paperclip.service
+
+      touch "$MARK"
+      echo "paperclip-bootstrap: done"
+
+runcmd:
+  # Firewall: SSH + Paperclip-Port (3100). HTTPS später, wenn Domain dran ist.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw allow 3100/tcp
+  - ufw --force enable
+
+  # Unattended Upgrades aktivieren
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+
+  # Bootstrap-Skript starten, Logs ins cloud-init-output.log spiegeln
+  - /usr/local/sbin/paperclip-bootstrap 2>&1 | tee -a /var/log/paperclip-bootstrap.log
+
+final_message: |
+  Paperclip cloud-init done in $UPTIME s.
+  Nächster Schritt manuell:
+    ssh paperclip@<server-ip>
+    claude login        # einmalig, Auth-Code aus Browser einkleben
+    sudo systemctl restart paperclip
+  UI dann auf http://<server-ip>:3100
