@@ -5,9 +5,10 @@
 > Den Rest macht cloud-init.
 
 **Stack:**
-Ubuntu 24.04 LTS · CX23 (2 vCPU / 4 GB / 40 GB SSD, Intel) · Docker für
-Postgres · Paperclip nativ als systemd-Service · Claude-Code-CLI im
-Subscription-Modus · UFW-Firewall.
+Ubuntu 24.04 LTS · CX23 (2 vCPU / 4 GB / 40 GB SSD, Intel) · Paperclip
+nativ als systemd-Service mit `pnpm dev` (eingebettete Postgres via
+`embedded-postgres`, Port 54329) · Claude-Code-CLI im Subscription-
+Modus · UFW-Firewall.
 
 **Kosten:** ~4,15 €/Monat (CX23 inkl. Traffic).
 
@@ -106,15 +107,15 @@ Im Browser: <http://server-ip:3100/>
 │  ┌─────────────────────────────────┐     │
 │  │ systemd: paperclip.service      │     │
 │  │   user=paperclip                │     │
-│  │   ExecStartPre: docker compose  │     │
-│  │     -f docker/docker-compose.yml│     │
-│  │     up -d db   (Postgres 17)    │     │
-│  │   ExecStart:   pnpm start       │     │
+│  │   WorkingDir=~/paperclip        │     │
+│  │   SERVE_UI=true                 │     │
+│  │   ExecStart: pnpm dev           │     │
 │  └─────────────┬───────────────────┘     │
-│                │                         │
-│  ┌─────────────▼──────────┐              │
-│  │ Postgres 17 (Container)│              │
-│  └────────────────────────┘              │
+│                │ embeds                  │
+│  ┌─────────────▼──────────────────┐      │
+│  │ embedded-postgres :54329       │      │
+│  │ (Paperclip startet ihn selbst) │      │
+│  └────────────────────────────────┘      │
 │                                          │
 │  UFW: 22/tcp + 3100/tcp open             │
 │  unattended-upgrades aktiv               │
@@ -126,8 +127,10 @@ Im Browser: <http://server-ip:3100/>
 - **`.env`** wird von `jolmes/bootstrap.sh` aus `.env.example` erzeugt,
   `BETTER_AUTH_SECRET` zufällig gesetzt, **kein** `ANTHROPIC_API_KEY`
   (Subscription-Modus).
-- **DB:** Container `paperclip-prod-db-1` mit Volume `pgdata`, Daten
-  in `/var/lib/docker/volumes/`. Backups später per Hetzner Storage Box.
+- **DB:** Paperclip startet seinen eigenen Postgres-17 über das
+  Npm-Paket `embedded-postgres`, Datenpfad
+  `~/.paperclip/instances/default/`. Backups später: Cron +
+  `pnpm db:backup` → Hetzner Storage Box.
 
 ---
 

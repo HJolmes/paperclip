@@ -52,9 +52,8 @@ write_files:
     content: |
       [Unit]
       Description=Paperclip (API + UI)
-      After=network-online.target docker.service
-      Wants=network-online.target docker.service
-      Requires=docker.service
+      After=network-online.target
+      Wants=network-online.target
 
       [Service]
       Type=simple
@@ -63,8 +62,8 @@ write_files:
       EnvironmentFile=/home/paperclip/paperclip/.env
       Environment=HOME=/home/paperclip
       Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
-      ExecStartPre=/usr/bin/docker compose -f /home/paperclip/paperclip/docker/docker-compose.yml up -d db
-      ExecStart=/usr/bin/env pnpm start
+      Environment=SERVE_UI=true
+      ExecStart=/usr/bin/env pnpm dev
       Restart=on-failure
       RestartSec=5s
 
