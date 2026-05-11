@@ -108,31 +108,19 @@ async function searchMails(query: string, top: number): Promise<Message[]> {
   }
 }
 
-function renderMailContext(mails: Message[], linked: TodoTask["linkedResources"]): string {
-  const lines: string[] = ["## Kontext aus Outlook", ""];
-  if (linked && linked.length > 0) {
-    lines.push("**Verknüpft im To-Do**:");
-    for (const r of linked) {
-      const label = r.displayName ?? r.applicationName ?? "Linked resource";
-      lines.push(`- [${label}](${r.webUrl ?? "#"})`);
-    }
-    lines.push("");
-  }
-  if (mails.length === 0) {
-    lines.push("_Keine passenden Mails per Suche gefunden._");
-    return lines.join("\n");
-  }
-  lines.push("**Top-Treffer (Volltextsuche)**:");
-  for (const m of mails) {
-    const from =
-      m.from?.emailAddress?.name ?? m.from?.emailAddress?.address ?? "unbekannt";
-    const when = m.receivedDateTime?.slice(0, 10) ?? "?";
-    const preview = (m.bodyPreview ?? "").replace(/\s+/g, " ").slice(0, 240);
-    lines.push(
-      `- **${m.subject}** — ${from} · ${when}` +
-        (m.webLink ? ` · [öffnen](${m.webLink})` : "") +
-        (preview ? `\n  > ${preview}` : ""),
-    );
+function renderMailContext(linked: TodoTask["linkedResources"]): string {
+  // We deliberately do NOT render the Graph full-text search hit list
+  // here. It produces more noise than signal: when the linked-resource
+  // path and the thread-seed path both miss, full-text on a short task
+  // title typically lights up unrelated digest mails, marketing
+  // mentions or thread quotations. Returning an empty section is
+  // better than a confidently wrong one. If linked resources exist,
+  // we list those — they're authoritative.
+  if (!linked || linked.length === 0) return "";
+  const lines: string[] = ["## Kontext aus Outlook", "", "**Verknüpft im To-Do**:"];
+  for (const r of linked) {
+    const label = r.displayName ?? r.applicationName ?? "Linked resource";
+    lines.push(`- [${label}](${r.webUrl ?? "#"})`);
   }
   return lines.join("\n");
 }
@@ -244,7 +232,7 @@ async function enrichWithMailContext(
     }
   }
 
-  // Search once if we still need fallback material.
+  // Search once if we still need fallback material to *seed* a thread.
   const mails = threadFound ? [] : await searchMails(task.title, top);
 
   // 2) Use the first search hit as a thread seed (its conversationId
@@ -257,10 +245,12 @@ async function enrichWithMailContext(
     }
   }
 
-  // 3) Last resort: top-hit-list rendering (the old shape).
-  const linkedHas = task.linkedResources && task.linkedResources.length > 0;
-  if (!threadFound && (linkedHas || mails.length > 0)) {
-    sections.push(renderMailContext(mails, task.linkedResources));
+  // 3) Last resort: if linked resources exist but we couldn't get a
+  //    thread, surface those. We no longer dump the raw full-text
+  //    search hit list — it was confidently wrong too often.
+  if (!threadFound) {
+    const block = renderMailContext(task.linkedResources);
+    if (block) sections.push(block);
   }
 
   if (sections.length === 0) return;
