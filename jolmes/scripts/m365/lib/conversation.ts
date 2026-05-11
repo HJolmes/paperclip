@@ -50,10 +50,23 @@ export async function loadMessage(
 ): Promise<ConversationMessage | null> {
   // No $select — comma in the value trips Graph's URL parser on this tenant.
   // Response is small enough that fetching all fields is fine.
+  //
+  // Outlook flagged-mail-to-To-Do creates a linkedResource whose externalId
+  // is the *immutable* message id. Graph rejects those when read without
+  // `Prefer: IdType="ImmutableId"`. We try the default form first (works
+  // for normal ids) and retry with the Immutable header on failure, which
+  // is the format flagged-mail tasks need.
   try {
     return await graph<ConversationMessage>(`/me/messages/${pathId(messageId)}`);
   } catch {
-    return null;
+    try {
+      return await graph<ConversationMessage>(
+        `/me/messages/${pathId(messageId)}`,
+        { headers: { Prefer: 'IdType="ImmutableId"' } },
+      );
+    } catch {
+      return null;
+    }
   }
 }
 

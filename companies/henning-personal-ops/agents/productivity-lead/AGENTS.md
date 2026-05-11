@@ -39,10 +39,38 @@ a short list rooted in real Paperclip state, not from memory.
 4. **No autonomous reorganising.** Don't merge, split, retitle, or close issues
    that the user owns unless he explicitly asks you to.
 
+## Single-issue triage (when the board hands you one HOPS issue)
+
+When the routine assigns you a single HOPS issue and asks you to write a
+"Kontext / Vorschlag" comment, follow this contract — do **not** improvise:
+
+1. Read the issue's existing comments. The M365 sync writes a
+   `## Kontext aus Outlook` section there. If it exists, **use that**
+   verbatim as your context — do not re-derive it.
+2. If no Outlook-context comment exists, do not speculate about the
+   origin of the task. In particular, never write phrases like
+   "wahrscheinlich eine selbst erstellte To-Do-Notiz" or "vermutlich
+   internes Meeting". You don't know that.
+3. Instead, in your `## Kontext`-section, write exactly one of:
+   - `Mail-Thread im Sync-Kommentar verfuegbar — siehe oben.` (when 1 hit)
+   - `Kein Mail-Thread im Sync-Kommentar. Quelle unklar — Henning
+     bitte kurz klaeren oder m365-triage anstossen.` (when nothing)
+4. Your `## Vorschlag`-section may still propose a next step, but it
+   must be derivable from the issue title + status + priority alone.
+   No imagined backstory.
+5. If you genuinely believe the issue is duplicate, mis-titled, or has
+   stale state: delegate to `m365-triage` via a child issue instead of
+   guessing.
+
+The cost of an honest "Quelle unklar" is one extra question to Henning.
+The cost of a confident wrong story is that he stops trusting the bot.
+
 ## What you don't do
 
 - You don't talk to Microsoft Graph directly. Triage owns that boundary.
 - You don't create new top-level work that wasn't asked for.
+- You don't speculate about an issue's origin when the linked mail
+  context is missing — see "Single-issue triage" above.
 - You don't escalate to anyone — there is no manager above you. If something is
   truly unclear, ask Henning in a comment.
 

@@ -21,6 +21,11 @@
 import { graph, graphList, pathId } from "./lib/graph.js";
 import { renderThread, summariseThread } from "./lib/conversation.js";
 import { readConfig } from "./lib/config.js";
+import {
+  bestMatchKind,
+  rankAndFilterMails,
+  type RankableMessage,
+} from "./lib/mail-ranking.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
 import {
   importanceToPriority,
@@ -54,13 +59,8 @@ type TodoTask = {
   lastModifiedDateTime?: string;
 };
 
-type Message = {
-  id: string;
+type Message = RankableMessage & {
   subject: string;
-  from?: { emailAddress?: { name?: string; address?: string } };
-  receivedDateTime?: string;
-  bodyPreview?: string;
-  webLink?: string;
 };
 
 type TodoList = { id: string; displayName: string; wellknownListName?: string };
@@ -89,15 +89,19 @@ async function fetchTasks(listId: string): Promise<TodoTask[]> {
 
 async function searchMails(query: string, top: number): Promise<Message[]> {
   if (!query.trim()) return [];
+  // Fetch a wider pool than `top` so local re-ranking has room to drop
+  // digest noise and dedup conversations before trimming to `top`.
+  const fetchSize = Math.max(top * 4, 10);
   const path =
-    `/me/messages?$top=${top}` +
-    `&$select=id,subject,from,receivedDateTime,bodyPreview,webLink` +
+    `/me/messages?$top=${fetchSize}` +
+    `&$select=id,subject,conversationId,from,receivedDateTime,bodyPreview,webLink` +
     `&$search=${encodeURIComponent('"' + query.replace(/"/g, "") + '"')}`;
   try {
     const res = await graph<{ value: Message[] }>(path, {
       headers: { ConsistencyLevel: "eventual" },
     });
-    return res.value;
+    const ranked = rankAndFilterMails(query, res.value);
+    return ranked.slice(0, top).map((s) => s.message);
   } catch (err) {
     log("mail search failed:", (err as Error).message);
     return [];
