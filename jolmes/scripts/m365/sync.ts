@@ -264,6 +264,49 @@ async function enrichWithMailContext(
   entry.enrichedAt = new Date().toISOString();
 }
 
+type SyncSummary = {
+  created: number;
+  reconciled: number;
+  enriched: number;
+  unchanged: number;
+  skipped: number;
+  dryRun: boolean;
+};
+
+function renderRunComment(s: SyncSummary): string {
+  const parts = [
+    `created=${s.created}`,
+    `reconciled=${s.reconciled}`,
+    `enriched=${s.enriched}`,
+    `unchanged=${s.unchanged}`,
+  ];
+  if (s.skipped > 0) parts.push(`skipped=${s.skipped} (limit)`);
+  if (s.dryRun) parts.push("DRY-RUN");
+  return `**M365 To-Do Sync** — ${parts.join(" · ")}`;
+}
+
+async function finalizeRunIssue(summary: SyncSummary): Promise<void> {
+  const runIssueId = process.env.PAPERCLIP_ISSUE_ID;
+  if (!runIssueId) return;
+  const expectedTitle = process.env.PAPERCLIP_ISSUE_TITLE ?? "";
+  if (!/M365 To-Do Sync/i.test(expectedTitle)) {
+    log(`run-issue title "${expectedTitle}" doesn't match routine — skipping auto-close`);
+    return;
+  }
+  const body = renderRunComment(summary);
+  try {
+    await addComment(runIssueId, body);
+  } catch (err) {
+    log(`run-issue comment failed (continuing): ${(err as Error).message}`);
+  }
+  if (summary.dryRun) return;
+  try {
+    await patchIssue(runIssueId, { status: "done" });
+  } catch (err) {
+    log(`run-issue close failed: ${(err as Error).message}`);
+  }
+}
+
 async function main(): Promise<void> {
   const cfg = await readConfig();
   const projectId = process.env.M365_PROJECT_ID || cfg.projectId || undefined;
@@ -365,6 +408,8 @@ async function main(): Promise<void> {
       (skipped > 0 ? ` skipped=${skipped} (limit)` : "") +
       (dryRun ? " (no writes)" : ""),
   );
+
+  await finalizeRunIssue({ created, reconciled, enriched, unchanged, skipped, dryRun });
 }
 
 main().catch((err) => {

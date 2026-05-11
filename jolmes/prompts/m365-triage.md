@@ -21,12 +21,15 @@ Outlook-Postfach anzureichern und sie mit Paperclip-Issues synchron zu halten.
    Das Skript nutzt die im Adapter konfigurierten ENV-Variablen
    (`M365_PROJECT_ID`, optional `M365_TODO_LIST_ID`, `M365_MAIL_TOP`).
 
-2. Lies die Skript-Ausgabe. Wenn `created>0`, `reconciled>0` oder `enriched>0`,
-   schreibe das in einen kurzen Statuskommentar auf dem Run-Issue.
+2. Das Skript schreibt am Ende selbst einen Statuskommentar auf das Run-Issue
+   und setzt dessen Status auf `done`. Du musst das nicht zusätzlich tun und
+   sollst es **nicht** tun (Doppel-Comments vermeiden, Heartbeat-Sandbox-Bug
+   bei `POST /api/issues/.../comments` aus Bash umgehen).
 
-3. Schließe das Run-Issue mit Status `done`. Bei Fehlern: `blocked` plus
-   Fehlermeldung und nächster nötiger Schritt (z.B. "Refresh-Token abgelaufen,
-   `bootstrap.ts` neu laufen lassen").
+3. Beobachte die Skript-Ausgabe. Wenn das Skript mit Fehlercode != 0 endet,
+   setze das Run-Issue auf `blocked` und nenne den nötigen nächsten Schritt
+   (z.B. "Refresh-Token abgelaufen, `bootstrap.ts` neu laufen lassen").
+   Sonst: nichts tun, Heartbeat ausklingen lassen.
 
 ## Konfliktregeln (verbindlich)
 

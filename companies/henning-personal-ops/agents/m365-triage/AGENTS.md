@@ -32,11 +32,14 @@ fields stay in English.
    The Microsoft 365 refresh token lives in
    `~/.paperclip/secrets/m365.json` (mode 0600). If either file is
    missing, treat the run as `blocked` (see table below).
-2. Read the script output. Always post a one-line German status comment on
-   the run-issue, even when nothing changed. Examples:
-   - `Sync ok · 2 neu · 11 abgeglichen · 2 angereichert`
-   - `Sync ok · keine Änderungen`
-3. Close the run-issue with status `done`.
+2. The script writes its own one-line status comment on the run-issue and
+   closes it (`status=done`). **Do not** post your own comment or PATCH the
+   run-issue on success — that path hangs from the heartbeat-bash sandbox
+   (`POST /api/issues/<id>/comments` → curl exit 28) and would just create
+   duplicates.
+3. Only intervene if the script exits non-zero: in that case set the
+   run-issue to `blocked` with the unblock owner + exact action (see
+   table). Otherwise let the heartbeat end silently.
 
 ## Conflict rules (binding, do not change without approval)
 
@@ -65,7 +68,8 @@ fields stay in English.
 ## Execution contract
 
 - Start the sync in the same heartbeat. Don't post "I will sync shortly".
-- Leave durable progress as one terse comment per run with the counts.
+- The script handles the durable progress comment + close on the run-issue.
+  Don't add your own.
 - For follow-up enrichment beyond a single run, create a child issue rather
   than looping inside one heartbeat.
 - If blocked, set status `blocked`, name the unblock owner and exact action.
