@@ -601,6 +601,9 @@ sinnvoll):**
   für die bestehende VM, `jolmes/hetzner/cloud-init.yaml` ruft dasselbe
   Skript bei Neu-Provision. `ConditionPathExists` auf das M365-Secret
   hält den Timer inert, bis `bootstrap.ts` auf der VM gelaufen ist.
+- M365-Sync läuft seit 2026-05-11 23:18 produktiv auf der VM,
+  alle 15 Min (`*:0/15`, Europe/Berlin), **ohne Token-Kosten**
+  (siehe §12.6 unten zu Setup-Lessons).
 - Bugfix-Bündel (Commit `e2b73c6`):
   - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
     Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der
@@ -620,7 +623,7 @@ sinnvoll):**
 
 | Prio | Thema | Notiz |
 |------|-------|-------|
-| **hoch** | **M365-Sync-Timer auf die laufende VM bringen.** Entscheidung 2026-05-11: kein Bot, sondern systemd-Timer (Null Token, robuster). Unit-Files liegen in `jolmes/hetzner/units/m365-sync.{service,timer}`, Cloud-init bringt sie bei Neu-Provision mit, die bestehende VM bekommt sie via `ssh paperclip@23.88.46.202 'cd ~/paperclip && git pull && ./jolmes/scripts/install-m365-timer.sh'`. Vorher noch `pnpm dlx tsx jolmes/scripts/m365/bootstrap.ts` auf der VM laufen lassen — sonst bleibt der Timer wegen `ConditionPathExists` inert. | Henning-Action |
+| ~~hoch~~ | ~~M365-Sync-Timer auf die laufende VM bringen~~ | **erledigt 2026-05-11 23:18**, siehe §12.6 |
 | hoch | UI-Production-Build aktivieren (12.1 Schritt 1) | `pnpm --filter @paperclipai/ui build`, Service umstellen |
 | hoch | A6 + A5 in der UI verdrahten: Agent anlegen, System-Prompt aus `jolmes/prompts/*.md` reinkopieren, Modell `claude-sonnet-4-6`, `max_output_tokens=600`, Cron `0 16 * * 5` bzw. `0 11 * * 1-5` (`Europe/Berlin`), Test-Lauf | UI-Arbeit, kann Claude nicht von hier |
 | mittel | embedded-pg → system-postgres migrieren (12.1 Schritt 2) | Service-Stop nötig |
@@ -632,12 +635,62 @@ sinnvoll):**
 
 ```
 Lies jolmes/SESSION-NOTES.md ab Abschnitt 12.
-Letzter Stand: Plan „persönliche Produktivität + Stabilisierung"
-genehmigt, A6 (Weekly-Review) und A5 (Followup-Watchdog) als
-Prompt-Dateien + Company-Specs angelegt, M365-Sync-Bugs gefixt.
+Letzter Stand: M365-Sync läuft als systemd-Timer produktiv auf der
+Hetzner-VM (alle 15 Min, Null Token-Kosten). A6 (Weekly-Review) und
+A5 (Followup-Watchdog) als Prompt-Dateien + Company-Specs liegen
+im Repo, müssen aber noch in der Paperclip-UI als Agents+Routinen
+verdrahtet werden.
 
-Erstes offenes Item ist 12.4 Zeile 1: M365-Sync-Trigger klären.
-Danach UI-Production-Build oder UI-Wiring der zwei neuen Bots.
+Nächste offene Items aus §12.4: UI-Production-Build (Schritt 12.1.1),
+A6/A5-Wiring in der UI, embedded-pg-Migration ist offenbar schon
+durch (VM nutzt system-postgres 18).
 
 Sprache Deutsch, knapp.
 ```
+
+### 12.6 Setup-Lessons aus dem M365-Sync-Live-Gang (2026-05-11)
+
+Im Setup tauchten Stolpersteine auf, die im Repo nicht standen.
+Damit das nicht nochmal weh tut:
+
+**Env-Vars, die der systemd-Timer braucht** (im Heartbeat wurden sie
+automatisch injiziert, beim Timer nicht):
+
+| Variable | Beispielwert | Quelle |
+|----------|--------------|--------|
+| `PAPERCLIP_API_URL` | `http://localhost:3100` | konstant |
+| `PAPERCLIP_COMPANY_ID` | UUID der Company „Henning Personal Ops" | `psql -c "SELECT id FROM companies WHERE issue_prefix='HEN'"` |
+| `PAPERCLIP_API_KEY` | 52-char Bearer | UI: Company → Agents → `M365-Sync-Runner` → Keys → Add Key |
+| `M365_PROJECT_ID` | UUID des Projekts „M365 Inbox" | `psql -c "SELECT id FROM projects WHERE name='M365 Inbox'"` |
+
+Die landen in `~/.paperclip/state/m365-sync.env` (mode 0600), wird
+von der Service-Unit per `EnvironmentFile=-…` geladen.
+
+**Identitätsanker:** der Sync nutzt einen dedizierten, schlafenden
+Agent **`M365-Sync-Runner`** als Token-Halter — Heartbeat aus,
+`wakeOnAssignment=false`, Max-Turns=1. Damit kein versehentlicher
+LLM-Lauf entsteht. Der Agent muss in der Company „Henning Personal
+Ops" existieren, sonst gibt's 401 beim API-Aufruf.
+
+**`assertCompanyAccess` in `server/src/routes/authz.ts:44`** prüft
+`agent.companyId === requested companyId` — der Agent-Key kann also
+nur in der eigenen Company schreiben. Cross-Company-Setups bräuchten
+einen Board-Key (heute nicht über UI verfügbar, nur über `claim`-Flow).
+
+**System-Postgres statt embedded-pg:** Auf der laufenden Hetzner-VM
+läuft Postgres 18 auf Port 5432 (Unix-Socket, peer-auth für User
+`paperclip`). Embedded-pg-Port 54329 hat dort schon niemand mehr.
+
+**M365-To-Do-Listen:** Ohne `M365_TODO_LIST_ID` syncen wir alle
+Listen. Outlook hat eine System-Liste **„Flagged Emails"** mit jeder
+jemals geflaggten Mail (in Hennings Account: 3599) — der Sync filtert
+`status=completed` aber raus, also fließen nur die wirklich noch
+offenen Flags ins Paperclip-Projekt. Nach erstem Sync waren 247
+Issues im M365-Inbox-Projekt (28 vorher gemappt, 100 neu, ~119 aus
+Company-Import vorher schon da).
+
+**Bash-History-Trap bei Keys:** `read -rs PAPERCLIP_API_KEY` setzt
+die Variable korrekt, aber sie überlebt keine neue SSH-Session.
+Wenn die env-Datei mit `$PAPERCLIP_API_KEY` aus einer Shell ohne
+diese Variable geschrieben wird, landet ein leerer Wert drin (Datei
+zu klein → 170 statt 222 Bytes). Verifizieren mit `wc -c`.
