@@ -511,3 +511,127 @@ Browser-Tipp: bei "schwarzer Seite" Chrome-Inkognito nutzen
 
 Sprache Deutsch, knapp.
 ```
+
+---
+
+## 12. Plan „persönliche Produktivität + Stabilisierung" (2026-05-11)
+
+Henning will Paperclip behalten und stärker nutzen — primär für
+persönliche Strukturierung, perspektivisch fürs Wissensmanagement.
+Jolmes-Operations-Bots (Domäne B) sind aufgeschoben.
+
+**Gewählte Schwerpunkte:**
+- Domäne A — Persönliche Strukturierung (priorisiert)
+- Domäne C — Wissens-/Dokumentenpflege (folgt)
+- Reihenfolge: Stabilisierung und Use-Cases **parallel**
+
+Vollständige Plan-Notizen liegen in
+`/root/.claude/plans/lies-jolmes-session-notes-md-ab-abschnit-velvet-metcalfe.md`
+(ephemerer Pfad — die wichtigen Teile sind hier dauerhaft eingefroren).
+
+### 12.1 Spur 1 – Stabilisierung
+
+**Pflicht (in dieser Reihenfolge):**
+
+| # | Schritt                                                | Begründung                              |
+|---|--------------------------------------------------------|-----------------------------------------|
+| 1 | UI-Production-Build aktivieren                         | killt HMR-Login-Bug / Inkognito-Pflicht |
+| 2 | embedded-pg → system-postgres migrieren                | DB neustart-fest (Crash nach Reboot)    |
+| 3 | DB-Backup-Cron (`pnpm db:backup` + rclone Storage Box) | Schutz gegen Festplattenausfall         |
+
+Befehl/Kontext zu Schritt 1: `pnpm --filter @paperclipai/ui build`,
+`paperclip.service` auf statisches Asset-Serving.
+Befehl zu Schritt 2: `jolmes/scripts/migrate-to-system-postgres.sh`.
+
+**Optional (nur bei konkretem Bedarf):**
+
+- Domain + TLS (`paperclip.jolmes.de` via Caddy) — übersprungen, weil
+  Henning mit IP gut klarkommt. Wert: TLS schützt Cookies + M365-Tokens
+  bei Zugriff aus Café/Hotel-WLAN.
+- Cloudflare Zero Trust Tunnel für SSH — übersprungen, solange SSH per
+  Key + Fail2ban stabil ist.
+
+**Gestrichen:**
+
+- Phase-2-Azure (`jolmes/docs/PHASE-2-AZURE.md`). Hetzner + M365-MCP
+  decken alles ab, was die Azure-Migration bringen sollte. Doc bleibt
+  als historischer Stand stehen, wird aber nicht weiterverfolgt.
+
+### 12.2 Spur 2 – Use-Cases (Reihenfolge: parallel zur Stabilisierung)
+
+**Use-Case A6 — Weekly-Review** (Freitag 16:00, Sonnet 4.6)
+
+- Trainings-Bot für strukturierte Wochen-Reflexion.
+- 3 Sections: „Was lief", „Was rutscht", „3 Schwerpunkte Mo".
+- Token-Disziplin: max. 3 Tool-Calls, nur Metadaten, ≤ 600 Output-Tokens,
+  Ziel < 5 ¢ pro Lauf.
+- System-Prompt: `jolmes/prompts/weekly-review.md`.
+- Company-Spec: `companies/henning-personal-ops/agents/weekly-review/AGENTS.md`.
+
+**Use-Case A5 — Followup-Watchdog** (Mo–Fr 11:00, Sonnet 4.6)
+
+- Faden-Detektor: zeigt, wo seit ≥ 5 Werktagen Bewegung fehlt.
+- 3 Heuristiken (eigene gesendete Mails ohne Antwort; eingehende Fragen
+  ohne Reaktion; `in_progress`-Issues > 5 wt ohne Update). Dedup gegen
+  letzte 5 Listen.
+- Selbe Token-Disziplin wie A6.
+- System-Prompt: `jolmes/prompts/followup-watchdog.md`.
+- Company-Spec: `companies/henning-personal-ops/agents/followup-watchdog/AGENTS.md`.
+
+**Folge-Use-Cases (nach A5/A6, in dieser Reihenfolge wahrscheinlich
+sinnvoll):**
+
+- A4 Meeting-Briefing (1 h vor jedem Termin) — Kalender-Trigger,
+  größerer Aufwand, hoher Nutzen.
+- A3 Inbox-Triage (3× täglich) — gut, sobald Watchdog läuft.
+- C1 Standort-Steckbriefe — erst sinnvoll, wenn Domäne B reaktiviert wird.
+- C3 Personal Knowledge Base — wenn Henning merkt, dass er alte
+  Entscheidungen oft sucht.
+
+### 12.3 Erledigt (2026-05-11)
+
+- Prompt-Dateien für A6 + A5 (Commit `40fd075`):
+  `jolmes/prompts/weekly-review.md`,
+  `jolmes/prompts/followup-watchdog.md`,
+  beide AGENTS.md unter
+  `companies/henning-personal-ops/agents/{weekly-review,followup-watchdog}/`.
+- Bugfix-Bündel (Commit `e2b73c6`):
+  - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
+    Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der
+    eigene „Abschlussbericht E-Mail Manager"-Digest wird komplett
+    gefiltert, Dedup nach `conversationId`. Behebt den Fehl-Verweis
+    auf einem „Reinigung Verl"-Issue.
+  - `lib/conversation.ts` `loadMessage` retried jetzt mit
+    `Prefer: IdType="ImmutableId"`. Damit lösen flagged-Mail-To-Dos
+    ihren `linkedResources.externalId` direkt auf — der Productivity-Lead
+    sieht den realen Mail-Thread statt zu raten.
+  - Productivity-Lead-Prompt (`agents/productivity-lead/AGENTS.md`) hat
+    jetzt eine „Single-issue triage"-Section: keine Spekulation über
+    Issue-Herkunft, ehrliche „Quelle unklar"-Antwort wenn der
+    Sync-Kommentar fehlt.
+
+### 12.4 Offene Todos
+
+| Prio | Thema | Notiz |
+|------|-------|-------|
+| **hoch** | **M365-Sync-Trigger klären.** Henning hat den `M365-Triage`-Bot in der UI archiviert. Im Repo gibt es keinen systemd-Timer für `sync.ts`. Falls aktuell **gar kein** Sync läuft, wirkt der Bugfix erst nach Re-Verdrahtung. Optionen: (a) Routine wieder aktivieren, (b) systemd-Timer in `jolmes/hetzner/cloud-init.yaml` ergänzen, (c) Codespace-Cron weiterlaufen lassen. | Antwort von Henning ausstehend |
+| hoch | UI-Production-Build aktivieren (12.1 Schritt 1) | `pnpm --filter @paperclipai/ui build`, Service umstellen |
+| hoch | A6 + A5 in der UI verdrahten: Agent anlegen, System-Prompt aus `jolmes/prompts/*.md` reinkopieren, Modell `claude-sonnet-4-6`, `max_output_tokens=600`, Cron `0 16 * * 5` bzw. `0 11 * * 1-5` (`Europe/Berlin`), Test-Lauf | UI-Arbeit, kann Claude nicht von hier |
+| mittel | embedded-pg → system-postgres migrieren (12.1 Schritt 2) | Service-Stop nötig |
+| mittel | DB-Backup-Cron (12.1 Schritt 3) | `pnpm db:backup` + rclone |
+| niedrig | Domain + TLS — bei Bedarf | s. 12.1 Optional |
+| niedrig | Cloudflare Zero Trust Tunnel — bei Bedarf | s. 12.1 Optional |
+
+### 12.5 Aufwärm-Prompt für die nächste Session
+
+```
+Lies jolmes/SESSION-NOTES.md ab Abschnitt 12.
+Letzter Stand: Plan „persönliche Produktivität + Stabilisierung"
+genehmigt, A6 (Weekly-Review) und A5 (Followup-Watchdog) als
+Prompt-Dateien + Company-Specs angelegt, M365-Sync-Bugs gefixt.
+
+Erstes offenes Item ist 12.4 Zeile 1: M365-Sync-Trigger klären.
+Danach UI-Production-Build oder UI-Wiring der zwei neuen Bots.
+
+Sprache Deutsch, knapp.
+```
