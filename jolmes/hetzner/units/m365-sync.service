@@ -13,6 +13,12 @@ User=paperclip
 WorkingDirectory=/home/paperclip/paperclip
 Environment=HOME=/home/paperclip
 Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Per-host config that Paperclip used to inject from the heartbeat:
+#   PAPERCLIP_API_URL, PAPERCLIP_COMPANY_ID, PAPERCLIP_API_KEY, M365_PROJECT_ID
+# Lives outside the repo (it contains the agent bearer token, mode 0600).
+# Leading '-' = "don't fail if the file is missing" so the timer still
+# loads cleanly on a fresh VM before the operator has populated it.
+EnvironmentFile=-/home/paperclip/.paperclip/state/m365-sync.env
 # pnpm dlx tsx resolves tsx from the pnpm store cache after the first
 # run. We intentionally do not pin to cli/node_modules/tsx because that
 # path moves with workspace-link changes.
