@@ -16,6 +16,20 @@ diesem Repo arbeitest, gilt:
   `.devcontainer/`, `.env.example`, `bootstrap.sh`, `docs/`, `prompts/`)
   in den Fork wandern und dort `master` ergänzen.
 
+## Git-Workflow & PR-Ziel (WICHTIG)
+- Dieses Repo ist ein **Fork**: `HJolmes/paperclip`. Upstream ist
+  `paperclipai/paperclip` (nur lesend, keine PRs dorthin von hier aus).
+- **Alle Pull Requests gehen gegen `HJolmes/paperclip:master`**, niemals
+  gegen `paperclipai/paperclip:master`. GitHub schlägt beim Erstellen
+  per Default das Upstream-Repo vor — das ist falsch und muss
+  überschrieben werden.
+- Bei `mcp__github__create_pull_request`: `owner="HJolmes"`,
+  `repo="paperclip"`, `base="master"` — explizit setzen.
+- Bei `gh pr create` (falls verwendet): `--repo HJolmes/paperclip
+  --base master`.
+- Feature-Branches haben das Schema `claude/<topic>-<slug>` und werden
+  immer auf `HJolmes/paperclip` gepusht.
+
 ## Sicherheits-Leitplanken
 - **Niemals** echte Werte in `.env.example` schreiben.
 - **Niemals** `.env`, Keys oder Secrets committen.
