@@ -1,11 +1,10 @@
 [Unit]
-Description=Paperclip M365 To-Do sync timer (every 15 minutes)
+Description=Paperclip M365 To-Do sync timer (every 5 minutes)
 Requires=m365-sync.service
 
 [Timer]
-# Every 15 minutes on the quarter-hour, Europe/Berlin (matches the
-# previous Paperclip routine `*/15 * * * *`).
-OnCalendar=*:0/15
+# Every 5 minutes, Europe/Berlin.
+OnCalendar=*:0/5
 # If the VM was off when a tick would have fired, run once on next boot.
 Persistent=true
 # Small random delay so multiple VMs in the same fleet don't all hammer

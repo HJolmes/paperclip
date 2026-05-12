@@ -191,11 +191,18 @@ async function reconcileExisting(
 
   const desiredStatus = todoToIssueStatus(task.status);
   const patch: Parameters<typeof patchIssue>[1] = {};
+  // Paperclip-side closure wins: if the issue is done but the todo is
+  // still open, propagate the closure outward instead of dragging the
+  // issue back open via patch.status = desiredStatus.
+  const paperclipClosureWins =
+    issue.status === "done" && task.status !== "completed";
 
   if (task.title && task.title !== issue.title) patch.title = task.title;
-  if (desiredStatus !== issue.status) patch.status = desiredStatus;
+  if (!paperclipClosureWins && desiredStatus !== issue.status) {
+    patch.status = desiredStatus;
+  }
 
-  if (issue.status === "done" && task.status !== "completed") {
+  if (paperclipClosureWins) {
     await markTodoCompleted(entry.todoListId, task.id);
     entry.lastTodoStatus = "completed";
   }
@@ -208,7 +215,8 @@ async function reconcileExisting(
     entry.lastIssueStatus = issue.status;
     entry.lastTitle = issue.title;
   }
-  entry.lastTodoStatus = task.status;
+  // Don't clobber the "completed" we just wrote with the stale snapshot.
+  if (!paperclipClosureWins) entry.lastTodoStatus = task.status;
   entry.lastSyncedAt = new Date().toISOString();
   return "reconciled";
 }
@@ -367,20 +375,14 @@ async function main(): Promise<void> {
         continue;
       }
 
-      // Fast path: skip tasks that have not changed since last sync.
-      // lastModifiedDateTime is updated by Microsoft on title, status,
-      // body, and importance changes — exactly the fields we sync.
-      if (
-        !isNew &&
-        !dryRun &&
-        existing.lastSyncedAt &&
-        task.lastModifiedDateTime &&
-        task.lastModifiedDateTime <= existing.lastSyncedAt &&
-        task.status === existing.lastTodoStatus
-      ) {
-        unchanged += 1;
-        continue;
-      }
+      // Earlier versions had a fast-path here that skipped reconcile
+      // when the To-Do side was unchanged. It hid every Paperclip-side
+      // closure (issue moved to "done" but the todo's lastModifiedDateTime
+      // didn't move) and meant `markTodoCompleted` was never reached.
+      // Reconcile is cheap (one GET + maybe one PATCH per mapped task);
+      // detecting Paperclip-side changes requires fetching the issue,
+      // which reconcileExisting already does. Don't reintroduce a
+      // To-Do-only fast-path without bidirectional change detection.
 
       if (dryRun) {
         if (isNew) {
