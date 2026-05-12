@@ -27,6 +27,35 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# Node muss >= 22 sein. pnpm 11 (von corepack als latest aktiviert)
+# crasht auf Node 20 mit ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite.
+# Der bloße engines.node-Check aus package.json (">=20") würde das
+# nicht erwischen.
+if ! command -v node >/dev/null 2>&1; then
+  echo "FEHLER: node nicht im PATH." >&2
+  exit 1
+fi
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  cat >&2 <<EOF
+FEHLER: Node $NODE_MAJOR.x ist zu alt (mindestens v22 erforderlich).
+
+  Upgrade via NodeSource:
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+
+  Danach update-vm.sh erneut aufrufen.
+EOF
+  exit 1
+fi
+
+# pnpm muss tatsächlich startfähig sein (catcht Corepack-/Node-Mismatch).
+if ! pnpm --version >/dev/null 2>&1; then
+  echo "FEHLER: 'pnpm --version' schlägt fehl. Vermutlich Corepack-/Node-Mismatch." >&2
+  echo "        Versuche: corepack enable && corepack prepare pnpm@latest --activate" >&2
+  exit 1
+fi
+
 if ! git diff-index --quiet HEAD --; then
   echo "FEHLER: working tree dirty – bitte erst committen/stashen." >&2
   git status --short
