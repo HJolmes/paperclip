@@ -726,3 +726,82 @@ die Variable korrekt, aber sie überlebt keine neue SSH-Session.
 Wenn die env-Datei mit `$PAPERCLIP_API_KEY` aus einer Shell ohne
 diese Variable geschrieben wird, landet ein leerer Wert drin (Datei
 zu klein → 170 statt 222 Bytes). Verifizieren mit `wc -c`.
+
+### 12.7 M365-Sync-Bugfix + 5-Min-Cadence (2026-05-12)
+
+Branch `claude/sync-paperclip-todo-tasks-slpLK`, PR **#16** gegen
+`HJolmes/paperclip:master` (NICHT Upstream — Regel ist jetzt fix in
+`.claude/CLAUDE.md` dokumentiert).
+
+**Symptom (Henning):** „Aufgaben, die ich in Paperclip schließe,
+werden in To-Do nicht abgehakt, auch nach mehreren Syncs."
+
+**Drei zusammenhängende Bugs in `jolmes/scripts/m365/sync.ts`:**
+
+1. **Fast-Path-Skip war einseitig** (`main()`, vorher Zeile 373-383):
+   prüfte nur To-Do-Seite (`task.lastModifiedDateTime` +
+   `task.status`). Paperclip-Schließungen waren unsichtbar — jeder
+   Sync hat den Eintrag als „unchanged" abgehakt und
+   `reconcileExisting` gar nicht erst aufgerufen.
+2. **Reconcile-Reopen** (`reconcileExisting`, vorher Zeile 192-204):
+   bei `issue.status="done"` und `task.status="notStarted"` wurde
+   `patch.status = "todo"` gesetzt UND `markTodoCompleted` getriggert
+   — das To-Do wurde korrekt geschlossen, der Paperclip-Issue aber
+   in der gleichen Operation wieder aufgemacht.
+3. **State-Overwrite** (Zeile 211): `entry.lastTodoStatus = task.status`
+   am Ende der Reconcile-Funktion überschrieb das „completed" aus
+   Bug 2 mit dem alten Snapshot — Statefile war inkonsistent zur
+   Realität auf Graph.
+
+**Fix:** Fast-Path komplett raus (Reconcile ist günstig — 1 GET +
+ggf. 1 PATCH pro Mapping; bidirektionale Change-Detection ohne
+Issue-Fetch ist nicht möglich). `paperclipClosureWins`-Pfad in
+`reconcileExisting` unterdrückt sowohl `patch.status` als auch den
+trailing State-Overwrite, wenn die Paperclip-Seite geschlossen hat.
+
+**Timer-Cadenz:** von 15 auf **5 Minuten** halbiert
+(`jolmes/hetzner/units/m365-sync.timer: OnCalendar=*:0/5`). Ein Lauf
+braucht ~5 s CPU bei 133 Mappings → unkritisch.
+
+**Recovery-Procedure für hängende Altlasten:**
+
+```bash
+# 1. Backup
+sudo cp -a /home/paperclip/.paperclip/state/m365-todo-sync.json \
+  /home/paperclip/.paperclip/state/m365-todo-sync.json.bak-$(date +%Y%m%d-%H%M%S)
+
+# 2. Alle lastSyncedAt auf 1970 → bricht den Fast-Path-Skip für alle Items
+sudo node -e '
+const fs = require("fs");
+const p = "/home/paperclip/.paperclip/state/m365-todo-sync.json";
+const s = JSON.parse(fs.readFileSync(p,"utf8"));
+for (const k of Object.keys(s.items)) s.items[k].lastSyncedAt = "1970-01-01T00:00:00.000Z";
+fs.writeFileSync(p, JSON.stringify(s, null, 2));
+'
+
+# 3. Sync laufen lassen (oder Timer-Tick abwarten)
+sudo systemctl start m365-sync.service
+```
+
+**Verifikation nach Fix:** 11 Issues mit `lastIssueStatus="done"` in
+State, alle gepaart mit `lastTodoStatus="completed"`. Keine
+Mismatches.
+
+**Footgun:** `systemctl start m365-sync.service` ist `Type=oneshot`
+und dedupliziert: wenn ein Lauf gerade aktiv ist (~45 s),
+**verwirft** systemd den zweiten `start` schweigend. Für „garantiert
+frischer Lauf" entweder warten bis der laufende durch ist, oder den
+Timer-Tick nehmen. Im normalen Betrieb (alle 5 min automatisch)
+irrelevant.
+
+**Nächste Phase** (siehe `jolmes/docs/M365-SYNC-ROADMAP.md`):
+Paperclip → To-Do Create für markierte Issues + Subtask-Propagation
+via Graph `checklistItems`. Issues im Fork sind noch deaktiviert,
+deshalb erstmal als Markdown-Doc statt GitHub-Issue. Wenn Issues
+aktiviert werden, in echtes Issue überführen.
+
+**Fork-PR-Regel (jetzt in `.claude/CLAUDE.md`):** Alle PRs gegen
+`HJolmes/paperclip:master`, NIEMALS gegen `paperclipai/paperclip`.
+GitHub schlägt per Default das Upstream-Repo vor — bei
+`gh pr create` bzw. dem Github-MCP also immer `owner=HJolmes`,
+`repo=paperclip`, `base=master` explizit setzen.
