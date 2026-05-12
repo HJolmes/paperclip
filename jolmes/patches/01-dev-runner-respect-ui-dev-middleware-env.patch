@@ -1,0 +1,16 @@
+# Issue: dev-runner.ts forciert PAPERCLIP_UI_DEV_MIDDLEWARE=true,
+#        was einen Production-UI-Build im Dev-Watch-Modus unmöglich macht.
+# Marker: "PAPERCLIP_UI_DEV_MIDDLEWARE: process.env.PAPERCLIP_UI_DEV_MIDDLEWARE"
+# Upstream: ungefixt, PR ausstehend.
+diff --git a/scripts/dev-runner.ts b/scripts/dev-runner.ts
+--- a/scripts/dev-runner.ts
++++ b/scripts/dev-runner.ts
+@@ -131,7 +131,7 @@
+
+ const env: NodeJS.ProcessEnv = {
+   ...process.env,
+-  PAPERCLIP_UI_DEV_MIDDLEWARE: "true",
++  PAPERCLIP_UI_DEV_MIDDLEWARE: process.env.PAPERCLIP_UI_DEV_MIDDLEWARE ?? "true",
+ };
+
+ if (mode === "dev") {
