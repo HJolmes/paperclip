@@ -118,15 +118,19 @@ write_files:
         exit 0
       fi
 
-      # --- 1) Node.js 20 LTS (NodeSource) ---
-      if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q '^v20'; then
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      # --- 1) Node.js 22 LTS (NodeSource) ---
+      # pnpm 11 (von corepack als latest aktiviert) erfordert Node >= 22.13.
+      # Auf Node 20 crasht es mit ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite.
+      if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q '^v22'; then
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
         apt-get install -y nodejs
       fi
 
       # --- 2) pnpm via corepack + Claude Code CLI ---
+      # Upstream pinnt aktuell pnpm@9.15.4 via package.json (packageManager).
+      # Corepack zieht die Version beim ersten pnpm-Aufruf nach. Hier nur
+      # enabled, damit Shims im PATH liegen.
       corepack enable
-      corepack prepare pnpm@9.15.4 --activate
       npm install -g @anthropic-ai/claude-code
 
       # --- 3) headless 'xdg-open' Stub, damit CLI-Auth-Login auf der VM

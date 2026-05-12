@@ -25,9 +25,16 @@ diesem Repo arbeitest, gilt:
 
 ## Stack-Defaults
 - Modell: `claude-sonnet-4-6`
-- Node 20+, pnpm 9.15.4 (über Corepack)
+- **Node 22 LTS** (NodeSource). Pflicht seit pnpm 11; auf Node 20 crasht
+  pnpm mit `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`.
+- **pnpm**: Version aus `package.json` (`packageManager`), aktuell `9.15.4`,
+  über Corepack on-demand gezogen.
 - Ports: API+UI auf 3100
 - Daten: `~/.paperclip/instances/default/`
+- **DB**: System-Postgres 17 (kein embedded-postgres mehr auf Hetzner).
+  Migration via `jolmes/scripts/migrate-to-system-postgres.sh`.
+- **Updates auf der Hetzner-VM**: `./jolmes/scripts/update-vm.sh`
+  (idempotent, mit DB-Backup + Rollback-Hinweis).
 
 ## Aktueller Phasenplan
 - **Phase 1** (jetzt): Codespace-Setup, erste Test-Company, Smoke-Test.
