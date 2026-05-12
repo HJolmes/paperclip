@@ -805,3 +805,108 @@ aktiviert werden, in echtes Issue überführen.
 GitHub schlägt per Default das Upstream-Repo vor — bei
 `gh pr create` bzw. dem Github-MCP also immer `owner=HJolmes`,
 `repo=paperclip`, `base=master` explizit setzen.
+
+### 12.8 Cloudflare Tunnel als TLS-Endpunkt (2026-05-12, abends)
+
+Branch `claude/paperclip-power-automate-cYxQS`, PR **#18** gegen
+`HJolmes/paperclip:master` (merged).
+
+**Auslöser:** Diskussion über Hennings Power-Automate-Flow
+„E-Mail Manager v2 – Claude" (Haiku-Klassifikation in 4 Kategorien
+Aufgabe/Reaktion/Info/Werbung mit Zeit-Buckets, Schreibspur in
+Excel + Outlook-Categories). Klassifikation bleibt in PA — günstig,
+stabil, mobil. Paperclip soll **nur die `Aufgabe`-Fälle** als Tasks
+übernehmen und bidirektional mit Microsoft To-Do syncen. Dafür
+braucht Paperclip einen Endpunkt, den Microsoft-Graph-Change-
+Notifications erreichen können → **HTTPS mit gültigem Cert auf
+einer Domain**, nicht IP. Henning hat (noch) keinen Zugriff auf
+`jolmes.de`-DNS, hat darum kurzerhand `hjolmes.org` bei Cloudflare
+für 7,50 €/Jahr registriert.
+
+**Entscheidung:** Cloudflare **Named Tunnel** (outbound von der
+Hetzner-VM, kein Inbound-Port nötig, TLS managed Cloudflare). Statt
+Caddy + Let's Encrypt. Phase-2-fest: beim Move auf Azure Container
+Apps lässt sich der DNS-CNAME einfach auf die Azure-FQDN umbiegen,
+Tunnel kommt weg.
+
+**Was geliefert (PR #18):**
+
+- `jolmes/scripts/setup-cloudflared.sh` — idempotent, installiert
+  `cloudflared` (.deb von GitHub-Release), legt Tunnel
+  `paperclip-hetzner` an, schreibt `/etc/cloudflared/config.yml`,
+  setzt DNS-CNAME via Cloudflare-API, installiert systemd-Service.
+- `jolmes/docs/CLOUDFLARE-TUNNEL.md` — Architektur, Setup, Security
+  (clientState-Secret, kein Payload im Webhook, Renewal automatisch),
+  Phase-2-Übergabe, Troubleshooting-Tabelle.
+
+**Vier Bugs auf dem Weg, alle gefunden + gefixt:**
+
+1. **`HOSTNAME`-Bash-Shadow:** Bash setzt `$HOSTNAME` automatisch auf
+   den VM-Namen (`paperclip`). Mein `HOSTNAME="${HOSTNAME:-...}"`
+   hat den Default deshalb nie gegriffen — `/etc/cloudflared/config.yml`
+   bekam `hostname: paperclip` statt `paperclip.hjolmes.org`. Fix:
+   eigene Variable `TUNNEL_HOSTNAME`.
+2. **Zu enger Grep auf cloudflared-Output:** `route dns` loggt
+   „Added CNAME … will route to this tunnel" — meine Erfolgsregel
+   suchte nach „created/already exists" und erklärte den Schritt
+   fälschlich für fehlgeschlagen, obwohl Exit-Code 0 war und der
+   CNAME tatsächlich angelegt wurde. Fix: auf Exit-Code prüfen,
+   Grep nur als Fallback für den „already exists"-Fall.
+3. **Paperclip-Hostname-Allowlist:** Paperclip nutzt **keine**
+   `config.json` für Hostname-Whitelisting, sondern die ENV-Variablen
+   `PAPERCLIP_ALLOWED_HOSTNAMES` + `PAPERCLIP_PUBLIC_URL` in
+   `/home/paperclip/paperclip/.env`. Der CLI-Befehl
+   `pnpm paperclipai allowed-hostname …` sucht eine `config.json`
+   die's nicht gibt und meckert „Run paperclip onboard first" — der
+   richtige Weg ist direkter ENV-Edit + Service-Restart.
+4. **UFW-Regelreihenfolge:** `ufw deny 80` greift nicht, wenn weiter
+   oben noch ein älteres `ALLOW 80/tcp` aus der Erst-Installation
+   steht — UFW evaluiert in Listenreihenfolge. Fix:
+   `ufw delete allow 80/tcp` löscht v4 + v6 in einem Rutsch.
+
+**Footgun: Loopback umgeht UFW.** `curl http://23.88.46.202/`
+**von der VM selbst** liefert weiter 200, obwohl Port 80 für extern
+dicht ist — Linux routet local-to-self über Loopback, das fällt
+nicht in den INPUT-Chain. Externer Test (aus dem Codespace) ist
+Pflicht für den UFW-Beweis.
+
+**Nebenbefund:** Auf der VM lief noch ein **Caddy** aus der Erst-
+Installation auf Port 80. Mit aktiviertem UFW von außen unerreichbar,
+aber redundant. `sudo systemctl disable --now caddy` weggeräumt.
+
+**Stand nach Merge:**
+
+| Punkt                                              | Status |
+| -------------------------------------------------- | ------ |
+| Tunnel `paperclip-hetzner` aktiv (fra07/08/15/17)  | ✅     |
+| DNS `paperclip.hjolmes.org` → `cfargotunnel.com`   | ✅     |
+| TLS Cloudflare-managed, kein Let's-Encrypt-Renewal | ✅     |
+| Paperclip via HTTPS                                | ✅ 200 |
+| UFW blockt 80/443 extern (extern verifiziert)      | ✅     |
+| Caddy disabled                                     | ✅     |
+
+**Offen (Folge-PRs, nicht in #18):**
+
+- `BETTER_AUTH_BASE_URL=https://paperclip.hjolmes.org` in `.env`
+  setzen — der Server loggt noch `authPublicBaseUrl=http://23.88.46.202`,
+  d.h. Login-Redirects können auf die alte IP zeigen.
+- `23.88.46.202` aus `PAPERCLIP_ALLOWED_HOSTNAMES` raus, sobald 1-2
+  Tage Probebetrieb durch sind.
+- Webhook-Endpoint in Paperclip (`/webhooks/graph/todo` o.ä.) für
+  Graph-Change-Notifications — Voraussetzung für die eigentliche
+  Story (PA → Paperclip-Task → To-Do-Sync, bidirektional).
+- systemd-Service auf Production-Build umstellen (statt `pnpm dev`).
+  Aktueller Boot kostet 45 s + 750 MB RAM pro Restart, hartes
+  TS-Watcher-Setup.
+
+**Lernen für später:**
+
+- Bash-Builtin-Variablen (`HOSTNAME`, `UID`, `PWD`, `RANDOM` …)
+  niemals als Default-Pattern-Variablen verwenden. Eigene Namen
+  nehmen.
+- Bei Setup-Skripten, die externe CLIs aufrufen, **immer auf Exit-
+  Code prüfen** und Output-Pattern-Matching nur als Zusatz.
+- Public-URL-fähiger Endpunkt ist Voraussetzung für jede Form von
+  Webhook-Integration. Cloudflare Tunnel ist die Phase-1-Lösung
+  schlechthin: keine offenen Inbound-Ports, kein Cert-Renewal, kein
+  DNS-Eintrag-Theater.
