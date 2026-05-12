@@ -18,7 +18,8 @@
 set -euo pipefail
 
 TUNNEL_NAME="${TUNNEL_NAME:-paperclip-hetzner}"
-HOSTNAME="${HOSTNAME:-paperclip.hjolmes.org}"
+# Bash setzt $HOSTNAME automatisch auf den VM-Namen — deshalb eigene Variable.
+TUNNEL_HOSTNAME="${TUNNEL_HOSTNAME:-paperclip.hjolmes.org}"
 LOCAL_URL="${LOCAL_URL:-http://localhost:3100}"
 CLOUDFLARED_DIR="/etc/cloudflared"
 SERVICE_USER="${SERVICE_USER:-$USER}"
@@ -66,7 +67,7 @@ else
   cat <<EOF
    Es öffnet sich gleich ein Browser-Link. Diesen kopieren, im Browser
    öffnen, mit dem Cloudflare-Konto einloggen und die Domain
-   ${HOSTNAME#*.} auswählen. Danach kehrt cloudflared selbständig zurück.
+   ${TUNNEL_HOSTNAME#*.} auswählen. Danach kehrt cloudflared selbständig zurück.
 EOF
   cloudflared tunnel login
   [ -f "$CERT_PATH" ] || err "Login fehlgeschlagen — cert.pem fehlt."
@@ -98,7 +99,7 @@ tunnel: ${TUNNEL_ID}
 credentials-file: ${CLOUDFLARED_DIR}/${TUNNEL_ID}.json
 
 ingress:
-  - hostname: ${HOSTNAME}
+  - hostname: ${TUNNEL_HOSTNAME}
     service: ${LOCAL_URL}
     originRequest:
       connectTimeout: 30s
@@ -107,17 +108,22 @@ ingress:
 EOF
 
 # --- 6) DNS-Route -----------------------------------------------------
-log "6/7 DNS-Eintrag für ${HOSTNAME} setzen"
+log "6/7 DNS-Eintrag für ${TUNNEL_HOSTNAME} setzen"
 
-# `route dns` ist idempotent: wenn der Eintrag bereits auf diesen Tunnel
-# zeigt, kommt nur eine Warnung; bei Konflikt (anderer Tunnel) ein Fehler.
-if cloudflared tunnel route dns "$TUNNEL_NAME" "$HOSTNAME" 2>&1 \
-     | tee /tmp/cf-route.log \
-     | grep -qiE "(already exists|created)"; then
+# `route dns` ist idempotent: legt CNAME an oder meldet, dass er existiert.
+# Echte Fehler (Konflikt mit anderem Tunnel, fehlende Permission) liefern
+# einen Non-Zero-Exit-Code.
+set +e
+cloudflared tunnel route dns "$TUNNEL_NAME" "$TUNNEL_HOSTNAME" 2>&1 | tee /tmp/cf-route.log
+ROUTE_RC=${PIPESTATUS[0]}
+set -e
+
+if [ "$ROUTE_RC" -eq 0 ]; then
   echo "   DNS-Eintrag ok."
+elif grep -qiE "(already exists|already a)" /tmp/cf-route.log; then
+  echo "   DNS-Eintrag existierte bereits — ok."
 else
-  cat /tmp/cf-route.log >&2
-  err "DNS-Route fehlgeschlagen — vermutlich zeigt der Name auf einen anderen Tunnel. Im Cloudflare-Dashboard prüfen."
+  err "DNS-Route fehlgeschlagen (siehe Output oben). Im Cloudflare-Dashboard prüfen, ob der Name auf einen anderen Tunnel zeigt."
 fi
 
 # --- 7) systemd-Service installieren ---------------------------------
@@ -140,15 +146,15 @@ cat <<EOF
 ==> Fertig.
 
    Tunnel:   ${TUNNEL_NAME} (${TUNNEL_ID})
-   Hostname: https://${HOSTNAME}
+   Hostname: https://${TUNNEL_HOSTNAME}
    Origin:   ${LOCAL_URL}
 
    Smoke-Test (auf der VM):
-     curl -fsS https://${HOSTNAME}/ | head -20
+     curl -fsS https://${TUNNEL_HOSTNAME}/ | head -20
 
    Logs:
      sudo journalctl -u cloudflared -f
 
    Webhook-Endpoint für Microsoft Graph z.B.:
-     https://${HOSTNAME}/webhooks/graph/todo
+     https://${TUNNEL_HOSTNAME}/webhooks/graph/todo
 EOF
