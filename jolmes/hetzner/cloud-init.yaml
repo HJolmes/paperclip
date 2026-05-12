@@ -50,6 +50,21 @@ write_files:
       vm.swappiness=10
       net.ipv4.tcp_syncookies=1
 
+  - path: /usr/local/sbin/paperclip-shm-cleanup
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # ExecStartPre für paperclip.service.
+      # embedded-postgres legt SHM-Segmente in /dev/shm/PostgreSQL.* an.
+      # Wenn der Service hart gestoppt wird oder Postgres-Worker durch
+      # OOM/unattended-upgrades sterben, bleiben verwaiste Segmente zurück
+      # und der Master-Prozess findet sie beim Restart nicht (FATAL 58P01,
+      # dsm_impl.c:266). Wir räumen das deterministisch vor jedem Start auf.
+      set -u
+      shopt -s nullglob
+      rm -f /dev/shm/PostgreSQL.* /dev/shm/sem.PostgreSQL.* 2>/dev/null || true
+      exit 0
+
   - path: /etc/systemd/system/paperclip.service
     content: |
       [Unit]
@@ -65,6 +80,11 @@ write_files:
       Environment=HOME=/home/paperclip
       Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
       Environment=SERVE_UI=true
+      # SHM-Reste von embedded-postgres deterministisch wegräumen,
+      # bevor wir starten. Verhindert FATAL 58P01 ("could not open shared
+      # memory segment") nach hartem Stop / OOM / unattended-upgrades.
+      # Läuft als root (vorerst), darum +-Prefix.
+      ExecStartPre=+/usr/local/sbin/paperclip-shm-cleanup
       # --bind lan = bind 0.0.0.0 + dev-runner forciert deployment_mode=authenticated.
       # Ohne --bind löscht dev-runner.ts unsere .env-Werte und fällt zurück auf
       # local_trusted, was an HOST=0.0.0.0 fail-fast scheitert.
@@ -159,6 +179,13 @@ write_files:
         upsert SERVE_UI true
         upsert PAPERCLIP_ALLOWED_HOSTNAMES '$PUBIP'
         upsert PAPERCLIP_PUBLIC_URL 'http://$PUBIP'
+        # Production-UI aus ui/dist statt Vite-Dev-Middleware.
+        # Wirkt zusammen mit jolmes/patches/01-dev-runner-respect-ui-dev-middleware-env.patch,
+        # ohne den der dev-runner diese Variable überschreibt.
+        upsert PAPERCLIP_UI_DEV_MIDDLEWARE false
+        # Better-Auth braucht expliziten Base-URL, sonst Warning beim Start
+        # und unzuverlässige OAuth-Callbacks/Redirects.
+        upsert BETTER_AUTH_BASE_URL 'http://$PUBIP'
       "
 
       # --- 7) UFW + Services ---
