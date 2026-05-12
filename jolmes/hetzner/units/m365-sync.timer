@@ -1,0 +1,17 @@
+[Unit]
+Description=Paperclip M365 To-Do sync timer (every 15 minutes)
+Requires=m365-sync.service
+
+[Timer]
+# Every 15 minutes on the quarter-hour, Europe/Berlin (matches the
+# previous Paperclip routine `*/15 * * * *`).
+OnCalendar=*:0/15
+# If the VM was off when a tick would have fired, run once on next boot.
+Persistent=true
+# Small random delay so multiple VMs in the same fleet don't all hammer
+# Graph at exactly :00 / :15 / :30 / :45.
+RandomizedDelaySec=30s
+Unit=m365-sync.service
+
+[Install]
+WantedBy=timers.target

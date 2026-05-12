@@ -21,6 +21,11 @@
 import { graph, graphList, pathId } from "./lib/graph.js";
 import { renderThread, summariseThread } from "./lib/conversation.js";
 import { readConfig } from "./lib/config.js";
+import {
+  bestMatchKind,
+  rankAndFilterMails,
+  type RankableMessage,
+} from "./lib/mail-ranking.js";
 import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
 import {
   importanceToPriority,
@@ -54,13 +59,8 @@ type TodoTask = {
   lastModifiedDateTime?: string;
 };
 
-type Message = {
-  id: string;
+type Message = RankableMessage & {
   subject: string;
-  from?: { emailAddress?: { name?: string; address?: string } };
-  receivedDateTime?: string;
-  bodyPreview?: string;
-  webLink?: string;
 };
 
 type TodoList = { id: string; displayName: string; wellknownListName?: string };
@@ -89,52 +89,60 @@ async function fetchTasks(listId: string): Promise<TodoTask[]> {
 
 async function searchMails(query: string, top: number): Promise<Message[]> {
   if (!query.trim()) return [];
+  // Fetch a wider pool than `top` so local re-ranking has room to drop
+  // digest noise and dedup conversations before trimming to `top`.
+  const fetchSize = Math.max(top * 4, 10);
   const path =
-    `/me/messages?$top=${top}` +
-    `&$select=id,subject,from,receivedDateTime,bodyPreview,webLink` +
+    `/me/messages?$top=${fetchSize}` +
+    `&$select=id,subject,conversationId,from,receivedDateTime,bodyPreview,webLink` +
     `&$search=${encodeURIComponent('"' + query.replace(/"/g, "") + '"')}`;
   try {
     const res = await graph<{ value: Message[] }>(path, {
       headers: { ConsistencyLevel: "eventual" },
     });
-    return res.value;
+    const ranked = rankAndFilterMails(query, res.value);
+    return ranked.slice(0, top).map((s) => s.message);
   } catch (err) {
     log("mail search failed:", (err as Error).message);
     return [];
   }
 }
 
-function renderMailContext(mails: Message[], linked: TodoTask["linkedResources"]): string {
-  const lines: string[] = ["## Kontext aus Outlook", ""];
-  if (linked && linked.length > 0) {
-    lines.push("**Verknüpft im To-Do**:");
-    for (const r of linked) {
-      const label = r.displayName ?? r.applicationName ?? "Linked resource";
-      lines.push(`- [${label}](${r.webUrl ?? "#"})`);
-    }
-    lines.push("");
-  }
-  if (mails.length === 0) {
-    lines.push("_Keine passenden Mails per Suche gefunden._");
-    return lines.join("\n");
-  }
-  lines.push("**Top-Treffer (Volltextsuche)**:");
-  for (const m of mails) {
-    const from =
-      m.from?.emailAddress?.name ?? m.from?.emailAddress?.address ?? "unbekannt";
-    const when = m.receivedDateTime?.slice(0, 10) ?? "?";
-    const preview = (m.bodyPreview ?? "").replace(/\s+/g, " ").slice(0, 240);
-    lines.push(
-      `- **${m.subject}** — ${from} · ${when}` +
-        (m.webLink ? ` · [öffnen](${m.webLink})` : "") +
-        (preview ? `\n  > ${preview}` : ""),
-    );
+function renderMailContext(linked: TodoTask["linkedResources"]): string {
+  // We deliberately do NOT render the Graph full-text search hit list
+  // here. It produces more noise than signal: when the linked-resource
+  // path and the thread-seed path both miss, full-text on a short task
+  // title typically lights up unrelated digest mails, marketing
+  // mentions or thread quotations. Returning an empty section is
+  // better than a confidently wrong one. If linked resources exist,
+  // we list those — they're authoritative.
+  if (!linked || linked.length === 0) return "";
+  const lines: string[] = ["## Kontext aus Outlook", "", "**Verknüpft im To-Do**:"];
+  for (const r of linked) {
+    const label = r.displayName ?? r.applicationName ?? "Linked resource";
+    lines.push(`- [${label}](${r.webUrl ?? "#"})`);
   }
   return lines.join("\n");
 }
 
+/**
+ * Strip residue from a retired reverse-sync. An earlier iteration of
+ * this tool wrote Paperclip comments back into the Microsoft To-Do
+ * task body under a `--- Paperclip-Kommentare ---` marker. Outlook
+ * persists that, so every fresh sync would otherwise re-import the
+ * stale block (including the long-removed "Top-Treffer (Volltextsuche)"
+ * fulltext-hit rendering). We cut everything from the marker onwards.
+ */
+const REVERSE_SYNC_MARKER = "--- Paperclip-Kommentare ---";
+function stripReverseSyncBleed(body: string): string {
+  const idx = body.indexOf(REVERSE_SYNC_MARKER);
+  if (idx === -1) return body;
+  return body.slice(0, idx).replace(/\s+$/u, "");
+}
+
 function buildInitialDescription(task: TodoTask, list: TodoList): string {
-  const userBody = task.body?.content?.trim() ?? "";
+  const rawBody = task.body?.content?.trim() ?? "";
+  const userBody = stripReverseSyncBleed(rawBody).trim();
   const sourceBlock = `**Quelle:** Microsoft To-Do — Liste «${list.displayName}»`;
   return userBody ? `${sourceBlock}\n\n${userBody}` : sourceBlock;
 }
@@ -240,7 +248,7 @@ async function enrichWithMailContext(
     }
   }
 
-  // Search once if we still need fallback material.
+  // Search once if we still need fallback material to *seed* a thread.
   const mails = threadFound ? [] : await searchMails(task.title, top);
 
   // 2) Use the first search hit as a thread seed (its conversationId
@@ -253,10 +261,12 @@ async function enrichWithMailContext(
     }
   }
 
-  // 3) Last resort: top-hit-list rendering (the old shape).
-  const linkedHas = task.linkedResources && task.linkedResources.length > 0;
-  if (!threadFound && (linkedHas || mails.length > 0)) {
-    sections.push(renderMailContext(mails, task.linkedResources));
+  // 3) Last resort: if linked resources exist but we couldn't get a
+  //    thread, surface those. We no longer dump the raw full-text
+  //    search hit list — it was confidently wrong too often.
+  if (!threadFound) {
+    const block = renderMailContext(task.linkedResources);
+    if (block) sections.push(block);
   }
 
   if (sections.length === 0) return;

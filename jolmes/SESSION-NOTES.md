@@ -511,3 +511,218 @@ Browser-Tipp: bei "schwarzer Seite" Chrome-Inkognito nutzen
 
 Sprache Deutsch, knapp.
 ```
+
+---
+
+## 12. Plan „persönliche Produktivität + Stabilisierung" (2026-05-11)
+
+Henning will Paperclip behalten und stärker nutzen — primär für
+persönliche Strukturierung, perspektivisch fürs Wissensmanagement.
+Jolmes-Operations-Bots (Domäne B) sind aufgeschoben.
+
+**Gewählte Schwerpunkte:**
+- Domäne A — Persönliche Strukturierung (priorisiert)
+- Domäne C — Wissens-/Dokumentenpflege (folgt)
+- Reihenfolge: Stabilisierung und Use-Cases **parallel**
+
+Vollständige Plan-Notizen liegen in
+`/root/.claude/plans/lies-jolmes-session-notes-md-ab-abschnit-velvet-metcalfe.md`
+(ephemerer Pfad — die wichtigen Teile sind hier dauerhaft eingefroren).
+
+### 12.1 Spur 1 – Stabilisierung
+
+**Pflicht (in dieser Reihenfolge):**
+
+| # | Schritt                                                | Begründung                              |
+|---|--------------------------------------------------------|-----------------------------------------|
+| 1 | UI-Production-Build aktivieren                         | killt HMR-Login-Bug / Inkognito-Pflicht |
+| 2 | embedded-pg → system-postgres migrieren                | DB neustart-fest (Crash nach Reboot)    |
+| 3 | DB-Backup-Cron (`pnpm db:backup` + rclone Storage Box) | Schutz gegen Festplattenausfall         |
+
+Befehl/Kontext zu Schritt 1: `pnpm --filter @paperclipai/ui build`,
+`paperclip.service` auf statisches Asset-Serving.
+Befehl zu Schritt 2: `jolmes/scripts/migrate-to-system-postgres.sh`.
+
+**Optional (nur bei konkretem Bedarf):**
+
+- Domain + TLS (`paperclip.jolmes.de` via Caddy) — übersprungen, weil
+  Henning mit IP gut klarkommt. Wert: TLS schützt Cookies + M365-Tokens
+  bei Zugriff aus Café/Hotel-WLAN.
+- Cloudflare Zero Trust Tunnel für SSH — übersprungen, solange SSH per
+  Key + Fail2ban stabil ist.
+
+**Gestrichen:**
+
+- Phase-2-Azure (`jolmes/docs/PHASE-2-AZURE.md`). Hetzner + M365-MCP
+  decken alles ab, was die Azure-Migration bringen sollte. Doc bleibt
+  als historischer Stand stehen, wird aber nicht weiterverfolgt.
+
+### 12.2 Spur 2 – Use-Cases (Reihenfolge: parallel zur Stabilisierung)
+
+**Use-Case A6 — Weekly-Review** (Freitag 16:00, Sonnet 4.6)
+
+- Trainings-Bot für strukturierte Wochen-Reflexion.
+- 3 Sections: „Was lief", „Was rutscht", „3 Schwerpunkte Mo".
+- Token-Disziplin: max. 3 Tool-Calls, nur Metadaten, ≤ 600 Output-Tokens,
+  Ziel < 5 ¢ pro Lauf.
+- System-Prompt: `jolmes/prompts/weekly-review.md`.
+- Company-Spec: `companies/henning-personal-ops/agents/weekly-review/AGENTS.md`.
+
+**Use-Case A5 — Followup-Watchdog** (Mo–Fr 11:00, Sonnet 4.6)
+
+- Faden-Detektor: zeigt, wo seit ≥ 5 Werktagen Bewegung fehlt.
+- 3 Heuristiken (eigene gesendete Mails ohne Antwort; eingehende Fragen
+  ohne Reaktion; `in_progress`-Issues > 5 wt ohne Update). Dedup gegen
+  letzte 5 Listen.
+- Selbe Token-Disziplin wie A6.
+- System-Prompt: `jolmes/prompts/followup-watchdog.md`.
+- Company-Spec: `companies/henning-personal-ops/agents/followup-watchdog/AGENTS.md`.
+
+**Folge-Use-Cases (nach A5/A6, in dieser Reihenfolge wahrscheinlich
+sinnvoll):**
+
+- A4 Meeting-Briefing (1 h vor jedem Termin) — Kalender-Trigger,
+  größerer Aufwand, hoher Nutzen.
+- A3 Inbox-Triage (3× täglich) — gut, sobald Watchdog läuft.
+- C1 Standort-Steckbriefe — erst sinnvoll, wenn Domäne B reaktiviert wird.
+- C3 Personal Knowledge Base — wenn Henning merkt, dass er alte
+  Entscheidungen oft sucht.
+
+### 12.3 Erledigt (2026-05-11)
+
+- Prompt-Dateien für A6 + A5 (Commit `40fd075`):
+  `jolmes/prompts/weekly-review.md`,
+  `jolmes/prompts/followup-watchdog.md`,
+  beide AGENTS.md unter
+  `companies/henning-personal-ops/agents/{weekly-review,followup-watchdog}/`.
+- M365-Sync ohne Bot — systemd-Timer als Quelle der Wahrheit:
+  `jolmes/hetzner/units/m365-sync.{service,timer}` als Unit-Files,
+  `jolmes/scripts/install-m365-timer.sh` als idempotentes Install-Skript
+  für die bestehende VM, `jolmes/hetzner/cloud-init.yaml` ruft dasselbe
+  Skript bei Neu-Provision. `ConditionPathExists` auf das M365-Secret
+  hält den Timer inert, bis `bootstrap.ts` auf der VM gelaufen ist.
+- M365-Sync läuft seit 2026-05-11 23:18 produktiv auf der VM,
+  alle 15 Min (`*:0/15`, Europe/Berlin), **ohne Token-Kosten**
+  (siehe §12.6 unten zu Setup-Lessons).
+- Sync-Output gesäubert (gleicher Abend): die Graph-Volltextsuche-
+  Trefferliste wird nicht mehr als Issue-Comment dazugeschrieben
+  (war zu oft falsch). `jolmes/scripts/m365/clean-comment-bleed.ts`
+  hat retroaktiv 196 Description-Bleeds (Reste vom alten
+  Reverse-Sync) bereinigt und 244 Volltext-Noise-Comments per
+  psql gelöscht.
+- Folgefehler im Cleanup: das Skript hat den **ganzen** „Kontext
+  aus Outlook"-Comment gelöscht, weil der Volltext-Block und der
+  „Verknüpft im To-Do"-Block im selben Comment standen. Damit
+  fehlten danach auch die `linkedResources`-Verknüpfungen.
+  Behoben mit Variante B (reset.ts --from-project --confirm,
+  130 Issues retire'd, dann frischer Sync) — 128 Issues neu
+  angelegt mit 91 enrichten. Letzter Tagesstand: Timer steht
+  wieder aktiv auf `*:0/15`.
+- Bugfix-Bündel (Commit `e2b73c6`):
+  - `jolmes/scripts/m365/lib/mail-ranking.ts` (+ Tests) sortiert
+    Volltext-Suchtreffer lokal: Subject-Hits schlagen Body-Hits, der
+    eigene „Abschlussbericht E-Mail Manager"-Digest wird komplett
+    gefiltert, Dedup nach `conversationId`. Behebt den Fehl-Verweis
+    auf einem „Reinigung Verl"-Issue.
+  - `lib/conversation.ts` `loadMessage` retried jetzt mit
+    `Prefer: IdType="ImmutableId"`. Damit lösen flagged-Mail-To-Dos
+    ihren `linkedResources.externalId` direkt auf — der Productivity-Lead
+    sieht den realen Mail-Thread statt zu raten.
+  - Productivity-Lead-Prompt (`agents/productivity-lead/AGENTS.md`) hat
+    jetzt eine „Single-issue triage"-Section: keine Spekulation über
+    Issue-Herkunft, ehrliche „Quelle unklar"-Antwort wenn der
+    Sync-Kommentar fehlt.
+
+### 12.4 Offene Todos
+
+| Prio | Thema | Notiz |
+|------|-------|-------|
+| ~~hoch~~ | ~~M365-Sync-Timer auf die laufende VM bringen~~ | **erledigt 2026-05-11 23:18**, siehe §12.6 |
+| hoch | UI-Production-Build aktivieren (12.1 Schritt 1) | `pnpm --filter @paperclipai/ui build`, Service umstellen |
+| hoch | A6 + A5 in der UI verdrahten: Agent anlegen, System-Prompt aus `jolmes/prompts/*.md` reinkopieren, Modell `claude-sonnet-4-6`, `max_output_tokens=600`, Cron `0 16 * * 5` bzw. `0 11 * * 1-5` (`Europe/Berlin`), Test-Lauf | UI-Arbeit, kann Claude nicht von hier |
+| mittel | embedded-pg → system-postgres migrieren (12.1 Schritt 2) | Service-Stop nötig |
+| mittel | DB-Backup-Cron (12.1 Schritt 3) | `pnpm db:backup` + rclone |
+| niedrig | Domain + TLS — bei Bedarf | s. 12.1 Optional |
+| niedrig | Cloudflare Zero Trust Tunnel — bei Bedarf | s. 12.1 Optional |
+
+### 12.5 Aufwärm-Prompt für die nächste Session
+
+```
+Codespace-Session-Start.
+
+Lies jolmes/SESSION-NOTES.md ab Abschnitt 12.
+
+Letzter Stand (2026-05-11 abends):
+- M365-Sync läuft als systemd-Timer alle 15 Min produktiv
+  auf der Hetzner-VM 23.88.46.202. Null Token-Kosten.
+- Repo-Spitze: Branch claude/add-core-tests-ZGENJ, Commit 6fd5963
+  (sync.ts strippt jetzt den Reverse-Sync-Bleed beim Import).
+- Letzter Live-Sync hat 128 Issues angelegt, die noch den alten
+  Bleed in der Description haben (Issues VOR dem 6fd5963-Fix
+  angelegt). Räumen wir gleich auf.
+
+Erstes Item heute (VM, eine Anweisung pro Nachricht bitte):
+  cd ~/paperclip && git pull
+  set -a; source ~/.paperclip/state/m365-sync.env; set +a
+  pnpm dlx tsx jolmes/scripts/m365/clean-comment-bleed.ts --confirm
+
+Danach offene Items aus §12.4 (Priorität von oben):
+  1. UI-Production-Build aktivieren (killt den Inkognito-Bug)
+  2. A6 Wochen-Review + A5 Followup-Watchdog in der UI als
+     Routinen verdrahten (Prompts liegen in jolmes/prompts/)
+  3. DB-Backup-Cron (rclone → Hetzner Storage Box)
+
+Konventionen:
+- Antworten Deutsch, knapp.
+- VM = Production (nur git pull, nicht editieren).
+  Codespace = Dev.
+- Bei Setup-Schritten: eine Anweisung pro Nachricht,
+  Henning bestätigt jeweils, bevor's weitergeht.
+```
+
+### 12.6 Setup-Lessons aus dem M365-Sync-Live-Gang (2026-05-11)
+
+Im Setup tauchten Stolpersteine auf, die im Repo nicht standen.
+Damit das nicht nochmal weh tut:
+
+**Env-Vars, die der systemd-Timer braucht** (im Heartbeat wurden sie
+automatisch injiziert, beim Timer nicht):
+
+| Variable | Beispielwert | Quelle |
+|----------|--------------|--------|
+| `PAPERCLIP_API_URL` | `http://localhost:3100` | konstant |
+| `PAPERCLIP_COMPANY_ID` | UUID der Company „Henning Personal Ops" | `psql -c "SELECT id FROM companies WHERE issue_prefix='HEN'"` |
+| `PAPERCLIP_API_KEY` | 52-char Bearer | UI: Company → Agents → `M365-Sync-Runner` → Keys → Add Key |
+| `M365_PROJECT_ID` | UUID des Projekts „M365 Inbox" | `psql -c "SELECT id FROM projects WHERE name='M365 Inbox'"` |
+
+Die landen in `~/.paperclip/state/m365-sync.env` (mode 0600), wird
+von der Service-Unit per `EnvironmentFile=-…` geladen.
+
+**Identitätsanker:** der Sync nutzt einen dedizierten, schlafenden
+Agent **`M365-Sync-Runner`** als Token-Halter — Heartbeat aus,
+`wakeOnAssignment=false`, Max-Turns=1. Damit kein versehentlicher
+LLM-Lauf entsteht. Der Agent muss in der Company „Henning Personal
+Ops" existieren, sonst gibt's 401 beim API-Aufruf.
+
+**`assertCompanyAccess` in `server/src/routes/authz.ts:44`** prüft
+`agent.companyId === requested companyId` — der Agent-Key kann also
+nur in der eigenen Company schreiben. Cross-Company-Setups bräuchten
+einen Board-Key (heute nicht über UI verfügbar, nur über `claim`-Flow).
+
+**System-Postgres statt embedded-pg:** Auf der laufenden Hetzner-VM
+läuft Postgres 18 auf Port 5432 (Unix-Socket, peer-auth für User
+`paperclip`). Embedded-pg-Port 54329 hat dort schon niemand mehr.
+
+**M365-To-Do-Listen:** Ohne `M365_TODO_LIST_ID` syncen wir alle
+Listen. Outlook hat eine System-Liste **„Flagged Emails"** mit jeder
+jemals geflaggten Mail (in Hennings Account: 3599) — der Sync filtert
+`status=completed` aber raus, also fließen nur die wirklich noch
+offenen Flags ins Paperclip-Projekt. Nach erstem Sync waren 247
+Issues im M365-Inbox-Projekt (28 vorher gemappt, 100 neu, ~119 aus
+Company-Import vorher schon da).
+
+**Bash-History-Trap bei Keys:** `read -rs PAPERCLIP_API_KEY` setzt
+die Variable korrekt, aber sie überlebt keine neue SSH-Session.
+Wenn die env-Datei mit `$PAPERCLIP_API_KEY` aus einer Shell ohne
+diese Variable geschrieben wird, landet ein leerer Wert drin (Datei
+zu klein → 170 statt 222 Bytes). Verifizieren mit `wc -c`.
