@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { M365_SYNC_STATE_FILE, STATE_DIR } from "./paths.js";
 
@@ -50,5 +50,11 @@ export async function readState(): Promise<SyncState> {
 export async function writeState(state: SyncState): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
   await mkdir(dirname(M365_SYNC_STATE_FILE), { recursive: true });
-  await writeFile(M365_SYNC_STATE_FILE, JSON.stringify(state, null, 2));
+  // Atomic: write to a sibling tmp file, then rename. A crash mid-write
+  // can only leave the tmp file orphaned, never an empty or partial
+  // state.json — which previously caused the sync to treat all M365
+  // tasks as new on the next run.
+  const tmp = `${M365_SYNC_STATE_FILE}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(tmp, JSON.stringify(state, null, 2));
+  await rename(tmp, M365_SYNC_STATE_FILE);
 }
