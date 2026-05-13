@@ -77,6 +77,52 @@ umbenannt.
 - `xdg-open` als Symlink auf `/bin/true`, damit `claude login`
   headless nicht crasht.
 
+### 3.1 Zugangswege & Passwörter
+
+| Weg                              | Auth                         | Wann nutzen                       |
+| -------------------------------- | ---------------------------- | --------------------------------- |
+| **SSH** (`ssh paperclip@<ip>`)   | Pubkey (Ed25519)             | Alltag, Updates, Deploys          |
+| **Hetzner Web-Terminal**         | User-Passwort (siehe unten)  | Notnagel, wenn SSH nicht geht     |
+| **Hetzner Rescue-System**        | von Hetzner generiert        | Letzter Rettungsanker (Disk mount)|
+
+**`sudo` fragt nie ein Passwort** (`NOPASSWD:ALL` für User `paperclip`).
+Das gleich beschriebene Passwort ist **ausschließlich** für interaktive
+Logins über die Hetzner-Web-Console / lokale TTY.
+
+**Web-Terminal-Zugang einrichten (einmalig):**
+
+`cloud-init` legt für `paperclip` *kein* Passwort an und sperrt `root`
+komplett (`disable_root: true`, `ssh_pwauth: false`). Die Hetzner-Web-
+Console (Cloud Console → Server → „>_") will aber an einem TTY ein
+Passwort. Deshalb einmalig via SSH setzen:
+
+```bash
+ssh paperclip@<server-ip>
+sudo passwd paperclip          # zweimal das Wunschpasswort eingeben
+exit
+```
+
+Anschließend funktioniert die Hetzner-Konsole mit:
+
+```
+paperclip login: paperclip
+Password: <gerade gesetztes Passwort>
+```
+
+> **Passwort gehört in 1Password / Bitwarden**, nicht ins Repo und nicht
+> in `.env`. Niemand außer dir braucht es — es ist eine reine Backup-
+> Zugangsroute für den Fall, dass `sshd` oder die Netzwerk-Strecke kaputt
+> ist.
+
+**Wenn SSH gar nicht mehr geht** (Pubkey verloren, sshd kaputt):
+
+1. Hetzner Cloud Console → Server → „Rescue" → **„Root-Passwort
+   zurücksetzen"**. Das injiziert via qemu-guest-agent ein einmaliges
+   Root-Passwort in `/etc/shadow` (überschreibt `disable_root`).
+2. Im Web-Terminal als `root` einloggen, `sshd` reparieren bzw. einen
+   neuen Pubkey nach `/home/paperclip/.ssh/authorized_keys` legen.
+3. Anschließend Root wieder sperren: `passwd -l root`.
+
 ---
 
 ## 4. Netzwerk & Firewall
