@@ -37,12 +37,14 @@ const log = (...args: unknown[]): void => console.log("[m365-breakdown]", ...arg
 async function evaluateIssue(
   todoTaskId: string,
   entry: SyncMappingEntry,
+  state: { items: Record<string, SyncMappingEntry> },
   dryRun: boolean,
-): Promise<"created" | "skipped" | "no-op"> {
+): Promise<"created" | "skipped" | "orphan"> {
   const issue = await getIssue(entry.issueId).catch(() => null);
   if (!issue) {
-    log(`issue ${entry.issueId} missing; removing mapping`);
-    return "no-op";
+    log(`issue ${entry.issueId} missing; removing mapping for todo ${todoTaskId}`);
+    if (!dryRun) delete state.items[todoTaskId];
+    return "orphan";
   }
   if (issue.status === "done" || issue.status === "cancelled") {
     entry.breakdownEvaluatedAt = new Date().toISOString();
@@ -113,6 +115,7 @@ async function finalizeRunIssue(summary: {
   evaluated: number;
   created: number;
   skipped: number;
+  orphans: number;
   dryRun: boolean;
 }): Promise<void> {
   const runIssueId = process.env.PAPERCLIP_ISSUE_ID;
@@ -124,6 +127,7 @@ async function finalizeRunIssue(summary: {
     `created=${summary.created}`,
     `skipped=${summary.skipped}`,
   ];
+  if (summary.orphans > 0) parts.push(`orphans=${summary.orphans}`);
   if (summary.dryRun) parts.push("DRY-RUN");
   try {
     await addComment(runIssueId, `**Task Breakdown** — ${parts.join(" · ")}`);
@@ -141,25 +145,42 @@ async function finalizeRunIssue(summary: {
 
 async function main(): Promise<void> {
   const dryRun = process.env.M365_DRY_RUN === "1";
-  const limit = Number.parseInt(process.env.M365_BREAKDOWN_LIMIT ?? "10", 10);
+  const rawLimit = Number.parseInt(process.env.M365_BREAKDOWN_LIMIT ?? "10", 10);
+  const evalLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : Infinity;
   const state = await readState();
-  const candidates = Object.entries(state.items)
+
+  // Sort newest-first so a freshly mapped issue gets the LLM attention
+  // before we wade through ancient candidates. Orphans (issue missing
+  // in Paperclip) get removed in-place and don't count toward the
+  // LLM-call limit — they're cheap and just stale-state cleanup.
+  const pending = Object.entries(state.items)
     .filter(([, entry]) => !entry.breakdownEvaluatedAt)
-    .slice(0, Number.isFinite(limit) && limit > 0 ? limit : Object.keys(state.items).length);
+    .sort(([, a], [, b]) => {
+      const ta = a.lastSyncedAt ?? "";
+      const tb = b.lastSyncedAt ?? "";
+      if (ta === tb) return 0;
+      return ta < tb ? 1 : -1;
+    });
 
   log(
-    `${Object.keys(state.items).length} mapped issue(s) · ${candidates.length} pending evaluation` +
+    `${Object.keys(state.items).length} mapped issue(s) · ${pending.length} pending evaluation` +
+      (Number.isFinite(evalLimit) ? ` · llm-limit=${evalLimit}` : "") +
       (dryRun ? " · DRY-RUN" : ""),
   );
 
   let evaluated = 0;
   let created = 0;
   let skipped = 0;
+  let orphans = 0;
 
-  for (const [todoTaskId, entry] of candidates) {
+  for (const [todoTaskId, entry] of pending) {
+    if (evaluated >= evalLimit) break;
     try {
-      const outcome = await evaluateIssue(todoTaskId, entry, dryRun);
-      if (outcome === "no-op") continue;
+      const outcome = await evaluateIssue(todoTaskId, entry, state, dryRun);
+      if (outcome === "orphan") {
+        orphans += 1;
+        continue;
+      }
       evaluated += 1;
       if (outcome === "created") created += 1;
       else skipped += 1;
@@ -169,8 +190,11 @@ async function main(): Promise<void> {
   }
 
   if (!dryRun) await writeState(state);
-  log(`done. evaluated=${evaluated} created=${created} skipped=${skipped}` + (dryRun ? " (no writes)" : ""));
-  await finalizeRunIssue({ evaluated, created, skipped, dryRun });
+  log(
+    `done. evaluated=${evaluated} created=${created} skipped=${skipped} orphans=${orphans}` +
+      (dryRun ? " (no writes)" : ""),
+  );
+  await finalizeRunIssue({ evaluated, created, skipped, orphans, dryRun });
 }
 
 main().catch((err) => {
