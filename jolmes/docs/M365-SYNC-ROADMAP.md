@@ -146,3 +146,120 @@ Neu für `issue-to-todo`-Items:
   exponieren. Falls nicht: kleines Server-PR vorab.
 - Falls Issues im Fork aktiviert werden, diesen Block in einen
   GitHub-Issue überführen und hier durch einen Link ersetzen.
+
+## Offen — Phase 2C: Subtask-Dedup + direkter Sync
+
+Stand: 2026-05-13. Aufgesetzt nach Henning's Beobachtung in Outlook
+To-Do nach dem ersten produktiven Breakdown-Lauf.
+
+### Block 1 — Doppelte Checklist-Items in To-Do aufräumen
+
+#### Symptom
+
+Nach dem Reset von Paperclip (TRUNCATE + Resync) und einem
+Breakdown-Lauf haben Outlook-Tasks, die zuvor schon einmal zerlegt
+worden waren, jetzt **doppelte Checklist-Items**: die alten
+checklistItems aus dem ersten Lauf sind in M365 erhalten geblieben
+(Sync löscht nichts in M365, gewollt), und der zweite
+Breakdown-Lauf hat dieselben Subtasks noch einmal hingeschrieben,
+weil der Paperclip-State nach dem Reset leer war und nichts wieder­
+erkannt hat.
+
+#### Ursache
+
+`reconcileSubtasks` in `sync.ts` matcht Outlook-checklistItems über
+`state.items[m365TaskId].subtaskMapping[subIssueId] = checklistItemId`.
+Beim Reset ging dieses Mapping verloren, also wurden neue
+checklistItems erzeugt; die alten kennt der Sync nicht, lässt sie
+also (korrekt) in Ruhe — Resultat: Duplikate.
+
+Generelles Risiko: jedes Mal, wenn `state.items` ein Subtask-Mapping
+verliert (Datei-Korruption, manueller State-Reset, Crash vor
+`writeState`), produziert der nächste Breakdown-Lauf doppelte
+Checklist-Einträge.
+
+#### Plan
+
+1. **Einmaliger Cleanup-Skript** `jolmes/scripts/m365/dedupe-checklists.ts`:
+   - Pro M365-Task im State alle checklistItems laden.
+   - Gruppieren nach normalisiertem Titel (`title.trim().toLowerCase()`).
+   - Bei Gruppen mit >1 Item: jüngere(s) Item(s) löschen, ältestes
+     behalten. Mapping in `state.items[…].subtaskMapping` so
+     anpassen, dass es auf die behaltene checklistItemId zeigt.
+   - Default: Dry-Run; nur bei `--apply` echte DELETEs.
+2. **Härtung in `reconcileSubtasks`** (`sync.ts`):
+   - Vor dem `createChecklistItem` prüfen, ob es schon ein
+     checklistItem mit identischem normalisierten Titel an der Task
+     gibt. Wenn ja: adoptieren statt anlegen (`subtaskMapping`-Eintrag
+     setzen, kein API-POST). Macht das Verhalten idempotent gegenüber
+     State-Verlust.
+3. Akzeptanz: Skript zweimal mit `--apply` laufen lassen → zweiter
+   Lauf zeigt 0 Löschungen.
+
+#### Out of Scope
+
+- Duplikate auf Parent-Task-Ebene (die hat Phase 1 schon gefixt durch
+  atomic `writeState`).
+- Andere Listen als die im Sync konfigurierten.
+
+### Block 2 — Direkter / Echtzeit-Sync
+
+Henning's Wunsch: Änderungen sollen "direkt" propagieren statt im
+5-Minuten-Timer-Takt. Konkretes Design noch offen — drei Achsen:
+
+#### Open Questions (vor Implementierung mit Henning klären)
+
+1. **Welche Richtung ist die kritische?**
+   - Paperclip → To-Do (z. B. Subtask-Erzeugung sofort in Outlook
+     sichtbar)
+   - To-Do → Paperclip (Henning hakt in Outlook ab, will ohne
+     Verzögerung in Paperclip-UI gespiegelt sehen)
+   - Beide
+2. **Webhook oder Push aus Paperclip?**
+   - **a) M365 Graph Change-Notifications** (M365 → uns):
+     [`/subscriptions`](https://learn.microsoft.com/en-us/graph/webhooks)
+     auf `/me/todo/lists/{listId}/tasks`. Erfordert eine öffentlich
+     erreichbare URL (Webhook-Receiver auf der VM oder via Tunnel) und
+     Erneuerung alle ~3 Tage. Latenz: Sekunden.
+   - **b) Paperclip-Event-Hook** (uns → M365):
+     Wenn der Paperclip-Server beim Speichern von Issue-Änderungen
+     einen Webhook/Event auslöst, fängt unser Bootstrap-Script den ab
+     und schreibt sofort an die Graph-API.
+   - **c) Beides** für echte Echtzeit beidseitig.
+3. **Replace oder Ergänzung?**
+   - Bleibt der 5-min-Timer als Safety-Net (für verpasste Webhooks)
+     oder fliegt er raus? Empfehlung: bleibt — Webhook-basierte Syncs
+     verlieren ab und zu Events.
+4. **Architektur-Ort**: Bootstrap-Script (wie aktuell) oder direkt
+   ins Paperclip-Backend integriert? Bootstrap ist einfacher zu
+   iterieren; Backend ist langfristig sauberer (siehe Phase 2 Azure).
+
+#### Empfehlung als Ausgangspunkt
+
+- Mit **(2a) Graph Webhooks** anfangen — gibt sofortige
+  Outlook→Paperclip-Reaktivität und ist isoliert testbar.
+- Webhook-Receiver als eigener tsx-Service auf der VM, Public-URL via
+  `nginx` + Let's Encrypt oder via Cloudflare-Tunnel (DSGVO prüfen).
+- Bei Graph-Notification: einfach einen `sync.ts`-Lauf triggern (kein
+  Vollscan, sondern targeted auf die geänderte Task).
+- Timer parallel weiterlaufen lassen als Safety-Net auf 15 min
+  hochgesetzt.
+
+#### Akzeptanzkriterien
+
+- [ ] Änderung an einer Outlook-Task ist in Paperclip-UI binnen
+      &lt;10 s sichtbar.
+- [ ] Webhook-Subscription erneuert sich automatisch, bevor sie
+      abläuft (cron + Renewal-Endpoint).
+- [ ] Webhook-Receiver verifiziert `validationToken` und
+      `clientState` (sonst kann jeder fremde Events einspielen).
+- [ ] DSGVO-Check: Webhook-URL/-Daten gehen nicht durch
+      Drittanbieter-Telemetrie.
+
+### Abhängigkeiten
+
+- Block 1 ist eigenständig, kann sofort gemacht werden.
+- Block 2 benötigt Public-Reachable URL — vermutlich erst zusammen mit
+  Phase 2 (Azure Container Apps) sinnvoll, **oder** als Übergangs­
+  lösung via Cloudflare-Tunnel zur Hetzner-VM.
+
