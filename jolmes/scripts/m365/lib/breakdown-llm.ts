@@ -14,19 +14,54 @@ export type BreakdownDecision =
 const SYSTEM_PROMPT = `Du analysierst To-Do-Aufgaben und entscheidest, ob es
 sinnvoll ist, sie in Subtasks zu zerlegen.
 
-Regeln:
-- Nur zerlegen, wenn die Aufgabe mehrere klar voneinander getrennte
-  Arbeitsschritte enthält (z. B. "Vertrag verlängern" → Unterlagen
-  sichten, Konditionen verhandeln, Vertrag unterschreiben).
-- NICHT zerlegen bei: trivialen Einzelaktionen ("Müll rausbringen",
-  "Mail beantworten"), reinen Erinnerungen, Aufgaben die schon klein
-  und atomar sind, oder wenn der Titel zu vage ist um sinnvoll zu
-  zerlegen.
-- Maximal 7 Subtasks. Lieber weniger und prägnant.
-- Subtask-Titel: kurze deutsche Imperativ-Formulierung, max ~60 Zeichen.
-- Reihenfolge = vorgeschlagene Bearbeitungs-Reihenfolge.
-- Prioritäten: erste 1-2 typisch "high", Mitte "medium", reine
-  Nachbereitung "low". "critical" nur bei harten Deadlines/Risiken.
+Standard: NEIN. Die Beweislast liegt bei "ja". Die meisten Tasks auf
+einer To-Do-Liste sind im Kern eine einzige Aktion, auch wenn man sie
+künstlich in 4-6 Schritte aufdröseln könnte. Künstliche Aufteilung
+macht die Liste schlimmer, nicht besser.
+
+Frage dich zuerst: würde Henning das in einem Statusmeeting als
+"Projekt" oder als "Erledigung" benennen? Nur bei "Projekt": zerlegen.
+
+Zerlegen NUR wenn MINDESTENS ZWEI der folgenden Punkte zutreffen:
+- Mehrere unabhängige Stakeholder oder Systeme involviert (z. B.
+  Integration zwischen zwei Tools, Abstimmung mit mehreren Abteilungen).
+- Eine echte Konzept-/Recherche-Phase ist Teil der Aufgabe (etwas muss
+  spezifiziert oder verglichen werden, nicht nur ausgeführt).
+- Die Aufgabe hat einen klaren Roll-out- oder Kommunikationsschritt
+  nach der eigentlichen Umsetzung.
+- Konditionen/Spezifikationen sind unklar und müssen ermittelt werden,
+  bevor die Umsetzung beginnen kann.
+
+NICHT zerlegen wenn:
+- Es im Kern EINE Aktion ist (besorgen, bestellen, beantworten,
+  bezahlen, anrufen, korrigieren, einrichten), egal wie viele
+  Mikro-Schritte man sich theoretisch dazu denken kann.
+- Es eine Erinnerung oder ein offener Gedanke ist ohne konkretes
+  Outcome ("über X nachdenken", "Y prüfen").
+- Eine bestehende Sache nur in einem Detail geändert wird
+  (Spec-Anpassung, "auch auf Rückseite drucken", "in rot statt blau").
+- Der Titel zu vage ist, um sinnvoll zu zerlegen.
+
+Konkrete Beispiele aus diesem Backlog:
+- "Geschenk für Mitarbeiter c.koch besorgen" → NEIN (eine Aktion:
+  Geschenk kaufen; die "Schritte" wären künstlich)
+- "Arbeitskleidung muss auch auf dem Rücken bedruckt sein" → NEIN
+  (Spec-Änderung an bestehender Beschaffung; eine Anweisung an die
+  nächste Bestellung, kein Projekt)
+- "Bezirksleitungen für ToolSense via Blink freigeben" → JA
+  (zwei Systeme + Rollout + Doku)
+- "Angebotsversand-Regeln schaffen" → JA (Konzept-Phase + Stakeholder
+  + Doku + Einführung)
+- "Warnwesten in rot mit Logo zum Überziehen" → JA (neue Produkt-
+  klasse, Spec/Lieferant/Stückzahl müssen ermittelt werden)
+
+Wenn du zerlegst: MINDESTENS 4 Subtasks, maximal 7. Weniger als 4
+heißt: die Aufgabe ist nicht komplex genug, dann lieber "breakdown: false".
+
+Subtask-Titel: kurze deutsche Imperativ-Formulierung, max ~60 Zeichen.
+Reihenfolge = vorgeschlagene Bearbeitungs-Reihenfolge.
+Prioritäten: erste 1-2 typisch "high", Mitte "medium", reine
+Nachbereitung "low". "critical" nur bei harten Deadlines/Risiken.
 
 Antworte ausschließlich mit gültigem JSON nach diesem Schema:
 { "breakdown": false, "reason": "..." }
@@ -139,8 +174,13 @@ function normalizeDecision(value: unknown, title: string): BreakdownDecision {
     })
     .filter((x): x is { title: string; priority: "critical" | "high" | "medium" | "low" } => x !== null)
     .slice(0, 7);
-  if (subtasks.length === 0) {
-    return { breakdown: false, reason: "no usable subtasks returned" };
+  // Hard floor: fewer than 4 subtasks means the task probably wasn't
+  // complex enough to justify the breakdown. Treat it as a soft "no".
+  if (subtasks.length < 4) {
+    return {
+      breakdown: false,
+      reason: `only ${subtasks.length} subtask(s) found — not complex enough`,
+    };
   }
   return {
     breakdown: true,
