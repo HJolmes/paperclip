@@ -35,18 +35,41 @@ oder aktualisiert.
 | Pfad                                            | Rolle                                            |
 | ----------------------------------------------- | ------------------------------------------------ |
 | `jolmes/scripts/m365/bootstrap.ts`              | Einmaliger Device-Code-Login → Refresh-Token     |
-| `jolmes/scripts/m365/sync.ts`                   | Sync-Lauf, vom Agenten pro Heartbeat aufgerufen  |
-| `jolmes/scripts/m365/lib/*.ts`                  | Graph-/Paperclip-/State-Helfer                   |
-| `jolmes/prompts/m365-triage.md`                 | System-Prompt des Agenten                        |
+| `jolmes/scripts/m365/sync.ts`                   | Sync-Lauf (Parent + Subtask-Checklist), vom Triage-Agenten aufgerufen |
+| `jolmes/scripts/m365/breakdown.ts`              | LLM-getriebener Subtask-Breakdown, vom Task-Breaker-Agenten aufgerufen |
+| `jolmes/scripts/m365/lib/*.ts`                  | Graph-/Paperclip-/Checklist-/State-Helfer        |
+| `jolmes/prompts/m365-triage.md`                 | System-Prompt des Sync-Agenten                   |
+| `jolmes/prompts/task-breaker.md`                | System-Prompt des Breakdown-Agenten              |
 | `~/.paperclip/secrets/m365.json` (mode 0600)    | Refresh-Token, **niemals committen**             |
-| `~/.paperclip/state/m365-todo-sync.json`        | Mapping todoTaskId → Paperclip-Issue             |
+| `~/.paperclip/state/m365-todo-sync.json`        | Mapping todoTaskId → Issue (+ Subtask-Mapping)   |
 
 ## Konfliktregeln
+
+### Parent-Task (Issue ↔ Outlook-Task)
 
 - **title/status**: To-Do gewinnt (Mensch editiert dort)
 - **description**: Paperclip gewinnt (Initial-Anlage einmal, danach nie überschrieben)
 - **neue Items**: nur To-Do → Paperclip
 - **abschließen**: in beide Richtungen (To-Do `completed` ↔ Issue `done`)
+
+### Subtasks (Issue mit `parentId` ↔ Outlook-`checklistItem`)
+
+Seit Phase 2A legt der separate **Task-Breaker**-Agent priorisierte
+Subtasks an, wenn das LLM eine Aufgabe für aufsplitt-würdig hält
+(nicht jede Aufgabe — nur die, bei denen es Sinn ergibt). `sync.ts`
+spiegelt diese Subtasks auf die Outlook-Parent-Task als
+`checklistItems`:
+
+- **title**: Paperclip gewinnt (Subtask wird zentral angelegt)
+- **status**: in beide Richtungen
+  - Subtask `done`/`cancelled` → `checklistItem.isChecked = true`
+  - `checklistItem.isChecked = true` in Outlook → Subtask wird auf `done` gesetzt
+- **neue Subtasks**: nur Paperclip (Task-Breaker) → Outlook
+- **Reihenfolge**: nach Priorität sortiert (critical → low)
+- **Idempotenz**: `breakdownEvaluatedAt` im State stellt sicher, dass
+  jedes Issue maximal einmal vom LLM betrachtet wird. Wer den Marker
+  zurücksetzen will (re-evaluate), kann den State editieren —
+  Subtask-Mapping bleibt davon unberührt.
 
 Status-Mapping:
 
@@ -178,3 +201,68 @@ Beim Move auf Hetzner/On-Prem mitnehmen:
 - `~/.paperclip/secrets/` und `~/.paperclip/state/` per `tar` ins neue Volume
 - ENV im Server-Container: `M365_PROJECT_ID`, optional `M365_TODO_LIST_ID`
 - Routine-Trigger bleibt unverändert, weil sie an Routine-ID hängt, nicht an Hostname.
+
+## Phase 2A: Task-Breaker (LLM-Subtasks → Outlook-Checklist)
+
+Seit Mai 2026 gibt es einen zweiten Agenten **Task-Breaker**, der für
+ausgewählte Aufgaben Subtasks anlegt und priorisiert. Diese erscheinen
+automatisch als `checklistItems` an der dazugehörigen Outlook-To-Do-Task.
+
+### Anlage
+
+1. **Routine** in derselben Company:
+
+   ```http
+   POST /api/companies/{companyId}/routines
+   {
+     "title": "Task Breakdown",
+     "description": "Zerlegt geeignete To-Do-Tasks in priorisierte Subtasks.",
+     "assigneeAgentId": "<task-breaker-agent-id>",
+     "projectId": "<m365-inbox-projekt-uuid>",
+     "priority": "medium",
+     "concurrencyPolicy": "skip_if_active",
+     "catchUpPolicy": "skip_missed"
+   }
+   ```
+
+2. **Agent** mit System-Prompt aus `jolmes/prompts/task-breaker.md`,
+   Adapter `claude_local`. ENV minimal — der Agent erbt die
+   M365-Variablen nicht (Skript liest nur Paperclip-State):
+
+   ```
+   M365_BREAKDOWN_LIMIT=10
+   ```
+
+3. **Schedule-Trigger**, deutlich seltener als der Sync — z.B. 1×/Stunde:
+
+   ```http
+   POST /api/routines/{routineId}/triggers
+   { "kind": "schedule", "cronExpression": "*/60 * * * *", "timezone": "Europe/Berlin" }
+   ```
+
+### Funktionsweise
+
+- Geht über alle Mappings in `~/.paperclip/state/m365-todo-sync.json`
+  ohne `breakdownEvaluatedAt`.
+- Pro Issue: ruft `claude -p` lokal mit einem Strict-JSON-Prompt auf.
+  Das LLM entscheidet *erst* `breakdown: true|false` und liefert dann
+  ggf. 2-7 priorisierte Subtasks.
+- Bei `true`: legt Subtasks via Paperclip-API mit `parentId` und der
+  vorgeschlagenen `priority` an, kommentiert den Parent mit der
+  Begründung.
+- Bei `false`: nichts anlegen, aber `breakdownEvaluatedAt` setzen,
+  damit das Issue nicht in jedem Lauf neu evaluiert wird.
+- Der nächste `sync.ts`-Lauf sieht die Subtasks und pusht sie als
+  `checklistItems` an die Outlook-Task (siehe Konfliktregeln oben).
+
+### Smoke-Test
+
+1. To-Do-Task erstellen, der mehrere Schritte enthält, z.B.
+   *„Bürobedarf bestellen — Stifte, Druckerpatronen, Notizblöcke,
+   Versandlabel drucken"*
+2. Warten bis `sync.ts` das Issue angelegt hat (≤5 min).
+3. Manueller Run der Breakdown-Routine über die UI.
+4. Im Paperclip-Issue erscheinen Subtasks; nächster Sync-Lauf macht
+   daraus `checklistItems` in Outlook.
+5. Eine Checkbox in Outlook abhaken → beim nächsten Sync wird der
+   Paperclip-Subtask auf `done` gesetzt.

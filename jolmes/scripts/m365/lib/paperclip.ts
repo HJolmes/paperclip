@@ -106,3 +106,22 @@ export async function addComment(issueId: string, body: string): Promise<void> {
 export async function getIssue(issueId: string): Promise<Issue> {
   return call<Issue>(`/api/issues/${issueId}`);
 }
+
+export type IssueListItem = Issue & {
+  parentId?: string | null;
+};
+
+export async function listIssuesByParent(parentId: string): Promise<IssueListItem[]> {
+  const params = new URLSearchParams({ parentId, limit: "200" });
+  return call<IssueListItem[]>(
+    `/api/companies/${companyId()}/issues?${params.toString()}`,
+  );
+}
+
+export async function listProjectRootIssues(projectId: string): Promise<IssueListItem[]> {
+  const params = new URLSearchParams({ projectId, limit: "200" });
+  const issues = await call<IssueListItem[]>(
+    `/api/companies/${companyId()}/issues?${params.toString()}`,
+  );
+  return issues.filter((i) => !i.parentId);
+}
