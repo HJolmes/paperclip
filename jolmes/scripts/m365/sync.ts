@@ -19,6 +19,12 @@
  * Once a task is mapped, status updates flow both ways.
  */
 import { graph, graphList, pathId } from "./lib/graph.js";
+import {
+  createChecklistItem,
+  listChecklistItems,
+  patchChecklistItem,
+  type ChecklistItem,
+} from "./lib/graph-checklist.js";
 import { renderThread, summariseThread } from "./lib/conversation.js";
 import { readConfig } from "./lib/config.js";
 import {
@@ -26,7 +32,12 @@ import {
   rankAndFilterMails,
   type RankableMessage,
 } from "./lib/mail-ranking.js";
-import { readState, writeState, type SyncMappingEntry } from "./lib/state.js";
+import {
+  readState,
+  writeState,
+  type SubtaskMappingEntry,
+  type SyncMappingEntry,
+} from "./lib/state.js";
 import {
   importanceToPriority,
   issueToTodoStatus,
@@ -38,6 +49,7 @@ import {
   addComment,
   createIssue,
   getIssue,
+  listIssuesByParent,
   patchIssue,
   type Issue,
   type IssueStatus,
@@ -228,6 +240,124 @@ async function markTodoCompleted(listId: string, taskId: string): Promise<void> 
   });
 }
 
+function priorityRank(p?: string): number {
+  switch (p) {
+    case "critical":
+      return 0;
+    case "high":
+      return 1;
+    case "medium":
+      return 2;
+    case "low":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+/**
+ * Mirror Paperclip subtasks of `entry.issueId` onto the linked Outlook
+ * To-Do task as checklistItems. Two-way close: if a subtask is `done`,
+ * the corresponding checklistItem is checked, and if a checklistItem is
+ * checked in Outlook, the subtask is moved to `done`. Title changes
+ * propagate Paperclip → checklistItem (Paperclip is the source of truth
+ * for subtask wording; checklistItems are stripped-down in Outlook).
+ *
+ * Idempotent: subtaskMapping in state remembers the checklistItemId per
+ * Paperclip subtaskId, so we patch instead of recreating.
+ */
+async function reconcileSubtasks(
+  task: TodoTask,
+  entry: SyncMappingEntry,
+): Promise<{ pushed: number; closed: number }> {
+  const subtasks = await listIssuesByParent(entry.issueId);
+  if (subtasks.length === 0) return { pushed: 0, closed: 0 };
+  subtasks.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+
+  let items: ChecklistItem[] = [];
+  try {
+    items = await listChecklistItems(entry.todoListId, task.id);
+  } catch (err) {
+    log(`checklist fetch failed for task ${task.id} (continuing): ${(err as Error).message}`);
+    return { pushed: 0, closed: 0 };
+  }
+
+  const mapping: Record<string, SubtaskMappingEntry> = { ...(entry.subtaskMapping ?? {}) };
+  let pushed = 0;
+  let closed = 0;
+
+  for (const sub of subtasks) {
+    const desiredText = sub.title;
+    const desiredChecked = sub.status === "done" || sub.status === "cancelled";
+    const known = mapping[sub.id];
+    let item = known ? items.find((i) => i.id === known.checklistItemId) : undefined;
+
+    if (!item) {
+      // Try to recover an orphan match by displayName before creating
+      // duplicates (covers manual edits in Outlook between runs).
+      item = items.find(
+        (i) => i.displayName.trim().toLowerCase() === desiredText.trim().toLowerCase(),
+      );
+    }
+
+    if (!item) {
+      try {
+        item = await createChecklistItem(entry.todoListId, task.id, desiredText);
+        pushed += 1;
+      } catch (err) {
+        log(`create checklistItem failed for subtask ${sub.id}: ${(err as Error).message}`);
+        continue;
+      }
+    } else {
+      // Outlook-side check wins for closing the subtask in Paperclip.
+      const outlookClosedSubtaskOpen = item.isChecked && !desiredChecked;
+      if (outlookClosedSubtaskOpen) {
+        try {
+          await patchIssue(sub.id, { status: "done" });
+          closed += 1;
+        } catch (err) {
+          log(`subtask close failed for ${sub.id}: ${(err as Error).message}`);
+        }
+      } else {
+        const patch: Partial<Pick<ChecklistItem, "displayName" | "isChecked">> = {};
+        if (item.displayName !== desiredText) patch.displayName = desiredText;
+        if (item.isChecked !== desiredChecked) patch.isChecked = desiredChecked;
+        if (Object.keys(patch).length > 0) {
+          try {
+            const updated = await patchChecklistItem(
+              entry.todoListId,
+              task.id,
+              item.id,
+              patch,
+            );
+            item = updated;
+          } catch (err) {
+            log(
+              `patch checklistItem ${item.id} failed (continuing): ${(err as Error).message}`,
+            );
+          }
+        }
+      }
+    }
+
+    mapping[sub.id] = {
+      checklistItemId: item.id,
+      lastSubtaskStatus: sub.status,
+      lastChecklistChecked: item.isChecked,
+      lastSyncedAt: new Date().toISOString(),
+    };
+  }
+
+  // Drop mapping entries for subtasks that no longer exist. The
+  // checklistItem stays in Outlook (we don't delete user-visible state
+  // automatically); we just forget it.
+  for (const subId of Object.keys(mapping)) {
+    if (!subtasks.some((s) => s.id === subId)) delete mapping[subId];
+  }
+  entry.subtaskMapping = mapping;
+  return { pushed, closed };
+}
+
 function candidateMessageIds(task: TodoTask): string[] {
   const out: string[] = [];
   for (const r of task.linkedResources ?? []) {
@@ -288,6 +418,8 @@ type SyncSummary = {
   enriched: number;
   unchanged: number;
   skipped: number;
+  subtasksPushed: number;
+  subtasksClosed: number;
   dryRun: boolean;
 };
 
@@ -298,6 +430,9 @@ function renderRunComment(s: SyncSummary): string {
     `enriched=${s.enriched}`,
     `unchanged=${s.unchanged}`,
   ];
+  if (s.subtasksPushed > 0 || s.subtasksClosed > 0) {
+    parts.push(`subtasks=+${s.subtasksPushed}/closed=${s.subtasksClosed}`);
+  }
   if (s.skipped > 0) parts.push(`skipped=${s.skipped} (limit)`);
   if (s.dryRun) parts.push("DRY-RUN");
   return `**M365 To-Do Sync** — ${parts.join(" · ")}`;
@@ -365,6 +500,8 @@ async function main(): Promise<void> {
   let enriched = 0;
   let skipped = 0;
   let unchanged = 0;
+  let subtasksPushed = 0;
+  let subtasksClosed = 0;
 
   for (const { task, list } of open) {
     try {
@@ -407,6 +544,22 @@ async function main(): Promise<void> {
       } else {
         const outcome = await reconcileExisting(task, entry, state);
         if (outcome === "reconciled") reconciled += 1;
+        if (outcome === "orphan-removed") continue;
+      }
+
+      // Only push subtasks for tasks still mapped and not yet closed
+      // on the Outlook side — closing a parent task in Outlook closes
+      // the issue, and reconciling the now-empty checklist on a
+      // completed task is wasteful.
+      const stillMapped = !!state.items[task.id];
+      if (stillMapped && task.status !== "completed") {
+        try {
+          const subResult = await reconcileSubtasks(task, state.items[task.id]);
+          subtasksPushed += subResult.pushed;
+          subtasksClosed += subResult.closed;
+        } catch (err) {
+          log(`subtask reconcile failed for ${task.id}: ${(err as Error).message}`);
+        }
       }
     } catch (err) {
       log(`task ${task.id} (${task.title}) failed:`, (err as Error).message);
@@ -417,11 +570,23 @@ async function main(): Promise<void> {
   log(
     `done. created=${created} reconciled=${reconciled} enriched=${enriched}` +
       (unchanged > 0 ? ` unchanged=${unchanged}` : "") +
+      (subtasksPushed > 0 || subtasksClosed > 0
+        ? ` subtasks=+${subtasksPushed}/closed=${subtasksClosed}`
+        : "") +
       (skipped > 0 ? ` skipped=${skipped} (limit)` : "") +
       (dryRun ? " (no writes)" : ""),
   );
 
-  await finalizeRunIssue({ created, reconciled, enriched, unchanged, skipped, dryRun });
+  await finalizeRunIssue({
+    created,
+    reconciled,
+    enriched,
+    unchanged,
+    skipped,
+    subtasksPushed,
+    subtasksClosed,
+    dryRun,
+  });
 }
 
 main().catch((err) => {

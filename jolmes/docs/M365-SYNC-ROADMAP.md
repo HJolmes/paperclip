@@ -11,7 +11,19 @@ sind, wandert jeder Block in einen eigenen GitHub-Issue.
   Fast-Path-Skip entfernt, `paperclipClosureWins`-Pfad in
   `reconcileExisting` ergänzt, Timer auf 5 min reduziert.
 
-## Offen — Phase 2A: Paperclip → To-Do Create + Subtask-Propagation
+- **Phase 2A — Subtask-Propagation via Task-Breaker (Mai 2026)**.
+  Branch `claude/paperclip-subtasks-feature-KDi0Y`. Neuer Agent
+  `Task-Breaker` ruft `breakdown.ts` auf, das pro Issue lokal `claude
+  -p` befragt ("Breakdown sinnvoll?"). Bei Ja: priorisierte Subtasks
+  via Paperclip-API. `sync.ts` reconciled Subtasks bidirektional als
+  Outlook-`checklistItems`. State um `breakdownEvaluatedAt` und
+  `subtaskMapping` erweitert. Doku: `M365-TODO-SYNC.md` Phase 2A.
+
+  Nicht enthalten (out of scope): vollständige Paperclip → To-Do
+  Create-Richtung für *Parent*-Tasks (nur Subtasks fließen rückwärts;
+  Parents müssen weiterhin aus To-Do kommen).
+
+## Offen — Phase 2B: Paperclip → To-Do Create für Parent-Tasks
 
 ### Kontext
 

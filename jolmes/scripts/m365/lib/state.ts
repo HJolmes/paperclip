@@ -2,6 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { M365_SYNC_STATE_FILE, STATE_DIR } from "./paths.js";
 
+export type SubtaskMappingEntry = {
+  checklistItemId: string;
+  lastSubtaskStatus: string;
+  lastChecklistChecked: boolean;
+  lastSyncedAt: string;
+};
+
 export type SyncMappingEntry = {
   todoListId: string;
   issueId: string;
@@ -11,6 +18,15 @@ export type SyncMappingEntry = {
   lastIssueStatus: string;
   lastSyncedAt: string;
   enrichedAt: string | null;
+  // Phase 2A: per-issue breakdown bookkeeping.
+  // breakdownEvaluatedAt is set the first time the breakdown agent
+  // looked at this issue (whether it created subtasks or not), so we
+  // don't burn LLM credits re-asking every run.
+  breakdownEvaluatedAt?: string | null;
+  // subtaskMapping links Paperclip subtask issue ids to Outlook
+  // checklistItem ids. Populated lazily when sync.ts pushes subtasks
+  // to the parent To-Do task.
+  subtaskMapping?: Record<string, SubtaskMappingEntry>;
 };
 
 export type SyncState = {

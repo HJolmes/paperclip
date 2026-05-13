@@ -910,3 +910,74 @@ aber redundant. `sudo systemctl disable --now caddy` weggeräumt.
   Webhook-Integration. Cloudflare Tunnel ist die Phase-1-Lösung
   schlechthin: keine offenen Inbound-Ports, kein Cert-Renewal, kein
   DNS-Eintrag-Theater.
+
+### 12.9 Task-Breaker: LLM-Subtasks → Outlook-Checklist (2026-05-13)
+
+Branch `claude/paperclip-subtasks-feature-KDi0Y`. Hennings Wunsch:
+„Paperclip soll Subtasks für meine Aufgaben anlegen, priorisieren,
+und mir das zurück nach To-Do spielen — aber nur wo es Sinn ergibt,
+nicht für jeden Task."
+
+**Architektur:** zweistufig, weil Sync-Frequenz (5 min) und
+LLM-Frequenz (1× pro Issue, ever) sich nicht vertragen.
+
+1. **Neuer Agent `Task-Breaker`** (`jolmes/prompts/task-breaker.md`)
+   ruft per Routine das neue Skript `jolmes/scripts/m365/breakdown.ts`
+   auf. Das geht über alle Mappings im M365-State ohne
+   `breakdownEvaluatedAt`, fragt pro Issue lokal `claude -p` mit
+   einem Strict-JSON-Prompt: erst `breakdown: true|false`, dann ggf.
+   2-7 Subtasks mit Priorität. Bei `false` wird das Issue trotzdem als
+   evaluiert markiert, damit nicht jeder Lauf neu fragt (kostet sonst
+   pro Mapping ~1 Claude-Token-Round).
+2. **`sync.ts` erweitert um `reconcileSubtasks`**: nach dem
+   Parent-Reconcile holt es alle Subtasks (`listIssuesByParent`),
+   sortiert nach Priorität (critical→low) und legt für jeden Subtask
+   einen `checklistItem` an der Outlook-Parent-Task an. Zwei-Wege-
+   Schließung: Subtask `done` → `isChecked=true`, abgehakter
+   `checklistItem` → Subtask `done`. Titel-Edits in Paperclip pushen
+   in Outlook; manuelle Outlook-Edits am Titel werden überschrieben
+   (Subtask-Titel ist Paperclip-autoritativ).
+
+**State-Migration:** `SyncMappingEntry` bekam zwei optionale Felder
+(`breakdownEvaluatedAt`, `subtaskMapping`). Bestehende 133 Einträge
+sind beim ersten Lauf weder evaluiert noch haben sie ein Mapping —
+Task-Breaker fängt also bei null an. Wer einen Re-Eval will: Feld
+löschen, im nächsten Lauf wird neu gefragt.
+
+**Konflikt-Regel-Erweiterung** (jetzt in `M365-TODO-SYNC.md`):
+- Parent-Task title/status: To-Do wins (unverändert)
+- Subtask title: Paperclip wins
+- Subtask status: zweiseitig
+- Subtask-Anlage: nur Task-Breaker → Outlook
+
+**Bewusste Design-Calls:**
+- *LLM via `claude` CLI, nicht via Anthropic-SDK*: kein zusätzlicher
+  API-Key, der Adapter-Container hat das Binary sowieso.
+- *Pro-Issue-Evaluierung statt projekt-basiert opt-in*: weil das LLM
+  ohnehin pro Task entscheiden muss („Sinn?"), spart ein
+  Projekt-Filter nicht — und das Sticky-Flag schützt vor Mehrfach-
+  Kosten.
+- *checklistItems statt eigener Tasks pro Subtask*: Outlook-Tasks für
+  jeden Subtask würden Henning's Liste fluten und sind in To-Do nicht
+  nativ als Kind verknüpfbar. Phase-2A-Roadmap empfahl checklistItems
+  aus genau diesem Grund.
+- *Parent-Tasks nur To-Do → Paperclip*: anders als Phase 2A
+  ursprünglich vorsah, ist die Parent-Direction noch nicht umgekehrt.
+  Erstes Ziel ist Subtask-Flow; Parent-Push bleibt Phase 2B.
+
+**Smoke-Test (vor Merge auf der VM):**
+1. Komplexen To-Do-Task anlegen (mehrere Schritte erkennbar).
+2. `sync.ts` läuft, Issue erscheint.
+3. Task-Breakdown-Routine manuell triggern, prüfen ob Subtasks
+   angelegt werden.
+4. Nächster Sync-Lauf: Outlook-Task hat checklistItems.
+5. Eine Checkbox in Outlook abhaken → Subtask geht in Paperclip auf
+   `done`.
+
+**Offen für Folge-PR:**
+- Re-Eval-Trigger („dieser Task soll neu zerlegt werden") über einen
+  Issue-Kommentar oder Label.
+- Parent-Push (Phase 2B): Issues aus einem Push-Projekt nach Outlook
+  als neue Tasks (nicht nur als Subtask-Checklist).
+- Test mit echten 133 Mappings auf der Hetzner-VM, Token-Verbrauch
+  und Latenz pro `claude -p`-Call messen.
